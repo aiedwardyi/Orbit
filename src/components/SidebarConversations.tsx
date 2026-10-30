@@ -410,12 +410,17 @@ function BotListItem({
               onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
               editing={renaming}
               onEditingChange={setRenaming}
-              className="min-w-0 flex-1 truncate"
+              className={cn("min-w-0 truncate", !bot.chiefOfStaff && "flex-1")}
               inputClassName={cn(
                 "w-full rounded bg-inset px-1 py-0.5",
                 density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
               )}
             />
+            {bot.chiefOfStaff && (
+              <span data-sidebar-chief-title role="img" aria-label={t("chrome.chiefOfStaff")} title={t("chrome.chiefOfStaff")} className="shrink-0 text-accent">
+                <Crown size={11} aria-hidden="true" />
+              </span>
+            )}
             <span className="sr-only" aria-live="polite">{asking ? t(question ? "ask.hasQuestionSuffix" : "routine.rangSuffix") : ""}</span>
           </span>
           {last && !renaming && (
@@ -431,11 +436,6 @@ function BotListItem({
         </div>
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
-            {bot.chiefOfStaff && (
-              <div data-sidebar-chief-title className="flex items-center gap-1 text-[11.5px] font-medium leading-4 text-accent">
-                <Crown size={11} /> {t("chrome.chiefOfStaff")}
-              </div>
-            )}
             {workerStatus ? (
               <div data-sidebar-worker-status className={cn("truncate text-ink-secondary", density === "compact" ? "text-xs leading-tight" : "text-[13px]")}>{workerStatus}</div>
             ) : (expandedModelLabel || bot.busy) && (

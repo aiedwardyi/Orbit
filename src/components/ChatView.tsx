@@ -1468,11 +1468,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           <DeviceTag />
           {bot.chiefOfStaff && (
             <span
-              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent max-md:hidden"
+              role="img"
+              className="shrink-0 text-accent"
               title={t("chrome.chiefOfStaff")}
               aria-label={t("chrome.chiefOfStaff")}
             >
-              <Crown size={11} aria-hidden="true" /> <span className="@max-xs/chathead:sr-only">{t("chrome.chiefOfStaff")}</span>
+              <Crown size={14} aria-hidden="true" />
             </span>
           )}
         </div>

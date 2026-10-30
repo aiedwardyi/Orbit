@@ -66,10 +66,13 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toContain("showEditButton");
   });
 
-  it("keeps the Chief of Staff name when the badge folds to the crown", () => {
-    expect(chatHeader).toContain('aria-label={t("chrome.chiefOfStaff")}');
-    expect(chatHeader).toContain("@max-xs/chathead:sr-only");
-    expect(chatHeader).not.toContain("@max-xs/chathead:hidden");
+  it("labels the Chief crown without a text pill on desktop and phone", () => {
+    const chief = headerBlock(chatHeader, "{bot.chiefOfStaff && (", "</span>");
+    expect(chief).toContain('aria-label={t("chrome.chiefOfStaff")}');
+    expect(chief).toContain('title={t("chrome.chiefOfStaff")}');
+    expect(chief).toContain('<Crown size={14} aria-hidden="true" />');
+    expect(chief).not.toContain("<span className=");
+    expect(chief).not.toContain("max-md:hidden");
   });
 
   it("wraps the header controls instead of overlapping at narrow widths", () => {

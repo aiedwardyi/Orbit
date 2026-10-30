@@ -8,8 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
 import { en, ko } from "@/lib/i18n-catalog";
+import * as chrome from "@/lib/friends-chrome";
+import * as phone from "@/lib/phone-swipe";
 import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
-import type { Bot } from "@/state/store";
+import type { Bot, Group } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sidebar = ["Sidebar.tsx", "SidebarConversations.tsx"]
@@ -23,6 +25,7 @@ type ApiResult = {
   syncChats?: boolean;
   folder?: string | null;
   bot?: { id: string; hidden: boolean; name: string };
+  devices?: [];
 };
 
 type ApiCall = { path: string; method: string; body: string };
@@ -31,6 +34,7 @@ const calls: ApiCall[] = [];
 let sync = { configured: false, syncChats: false };
 let syncAnswer: Promise<void> | null = null;
 let bots: Bot[] = [];
+let groups: Group[] = [];
 
 function bot(id: string, name: string, hidden: boolean): Bot {
   return {
@@ -62,13 +66,14 @@ vi.mock("@/state/store", async (importOriginal) => {
       calls.push({ path, method: init?.method ?? "GET", body: textBody(init?.body) });
       if (path === "/api/profile-sync") await syncAnswer;
       if (path === "/api/profile-sync") return { configured: sync.configured, syncChats: sync.syncChats, folder: sync.configured ? "D:/Orbit" : null };
+      if (path === "/api/devices") return { devices: [] };
       if (path.startsWith("/api/bots/") && init?.method === "PATCH") return { bot: { id: "bo", hidden: false, name: "Bo" } };
       return {};
     },
     useStore: () => ({
       state: {
         bots,
-        groups: [],
+        groups,
         selectedId: "ada",
         activeView: "chat",
         instances: [],
@@ -139,12 +144,60 @@ async function openMenu(name: string) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.replaceChildren();
   calls.length = 0;
   sync = { configured: false, syncChats: false };
   syncAnswer = null;
   bots = [];
+  groups = [];
   localStorage.setItem("omb-locale", "en");
+});
+
+describe("decluttered sidebar menus", () => {
+  it.each([[false, false, true], [true, false, false], [true, true, true]])("shows the collapse control with phone=%s and restore=%s: %s", async (isPhone, restore, visible) => {
+    vi.spyOn(phone, "isPhone").mockReturnValue(isPhone);
+    vi.spyOn(chrome, "showPhoneDrawerCollapse").mockReturnValue(restore);
+    const { host, root } = await renderSidebar();
+    try {
+      expect(Boolean(host.querySelector('button[title="Collapse sidebar to avatars"]'))).toBe(visible);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it.each([false, true])("renders bot, group and New menus with visibility flags %s", async (visible) => {
+    vi.spyOn(chrome, "showBotMenuCopy").mockReturnValue(visible);
+    vi.spyOn(chrome, "showBotMenuMakeGroup").mockReturnValue(visible);
+    vi.spyOn(chrome, "showNewMenuExport").mockReturnValue(visible);
+    vi.spyOn(chrome, "showNewMenuTeams").mockReturnValue(visible);
+    vi.spyOn(chrome, "showGroupMenuCopyId").mockReturnValue(visible);
+    bots = [{ ...bot("ada", "Ada", false), pinned: true, chiefOfStaff: true }];
+    groups = [{ id: "team", threadId: "team-thread", name: "Team", memberIds: ["ada"], defaultResponder: { kind: "member", botId: "ada" }, bulletin: "", createdAt: 0, messages: [], unread: false }];
+    const { root } = await renderSidebar();
+    try {
+      await openMenu("Ada");
+      const menu = document.querySelector("[data-bot-menu]")!;
+      const labels = [...menu.querySelectorAll("button")].map((node) => node.textContent);
+      expect(labels).toEqual(visible
+        ? ["Unpin", "Remove Chief of Staff", "Move to section", "Mark as Unread", "Edit Profile", "Make a copy", "Make a group with this bot", "Delete"]
+        : ["Unpin", "Remove Chief of Staff", "Move to section", "Mark as Unread", "Edit Profile", "Delete"]);
+      await act(async () => buttonByText("New or share").click());
+      expect(document.body.textContent?.includes("Export all bots")).toBe(visible);
+      expect(document.body.textContent?.includes("Teams")).toBe(visible);
+      expect(buttonByText("New Bot")).not.toBeNull();
+      expect(buttonByText("New group")).not.toBeNull();
+      await act(async () => {
+        document.querySelector('[data-sidebar-row-id="team"] button')!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 60, clientY: 60 }));
+      });
+      const room = document.querySelector("[data-room-menu]")!;
+      expect([...room.querySelectorAll("button")].map((node) => node.textContent)).toEqual(visible
+        ? ["Rename Team", "Move to section", "Copy conversation ID", "Delete group"]
+        : ["Rename Team", "Move to section", "Delete group"]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
 });
 
 describe("bot archive is not a user action", () => {

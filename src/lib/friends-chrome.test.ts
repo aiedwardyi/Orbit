@@ -22,6 +22,12 @@ import {
   showSidebarPhone,
   showSidebarRoutines,
   showSidebarTeachSkill,
+  showBotMenuCopy,
+  showBotMenuMakeGroup,
+  showNewMenuExport,
+  showNewMenuTeams,
+  showGroupMenuCopyId,
+  showPhoneDrawerCollapse,
 } from "./friends-chrome";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +69,12 @@ describe("friends chrome flags", () => {
     expect(showSettingsEnginesNav()).toBe(false);
     expect(showUsagePerBotTable()).toBe(false);
     expect(showEngineRailZoo()).toBe(false);
+    expect(showBotMenuCopy()).toBe(false);
+    expect(showBotMenuMakeGroup()).toBe(false);
+    expect(showNewMenuExport()).toBe(false);
+    expect(showNewMenuTeams()).toBe(false);
+    expect(showGroupMenuCopyId()).toBe(false);
+    expect(showPhoneDrawerCollapse()).toBe(false);
   });
 });
 

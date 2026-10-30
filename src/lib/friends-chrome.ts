@@ -79,3 +79,27 @@ export function showUsagePerBotTable(): boolean {
 export function showEngineRailZoo(): boolean {
   return false;
 }
+
+export function showBotMenuCopy(): boolean {
+  return false;
+}
+
+export function showBotMenuMakeGroup(): boolean {
+  return false;
+}
+
+export function showNewMenuExport(): boolean {
+  return false;
+}
+
+export function showNewMenuTeams(): boolean {
+  return false;
+}
+
+export function showGroupMenuCopyId(): boolean {
+  return false;
+}
+
+export function showPhoneDrawerCollapse(): boolean {
+  return false;
+}
