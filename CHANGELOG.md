@@ -2,6 +2,21 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.216] - 2026-10-30
+
+### Added
+- Swipe down to close sheets on the phone.
+- The bot's subtitle shows "3 workers" while its workers run, and the model again when they finish.
+- Settings > Phone pairs a phone with a QR code.
+- One-button engine setup that notices when the install finishes.
+- Phone Settings is a labeled list.
+
+### Changed
+- Wink opens in Korean on Korean Windows unless you picked a language.
+- Agentic mode keeps working until an engine is fully out of its limit.
+- "Engine" is used everywhere for Claude, Codex, Grok, Gemini and Muse.
+- First run is simpler: clearer New Bot path, a suggested bot name, and Usage lists only installed engines.
+
 ## [1.0.215] - 2026-10-30
 
 ### Fixed
@@ -348,6 +363,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.216]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.216
 [1.0.215]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.215
 [1.0.214]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.214
 [1.0.213]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.213
