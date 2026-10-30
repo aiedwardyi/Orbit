@@ -222,6 +222,32 @@ describe("Sidebar unread count", () => {
     }
   });
 
+  it("counts replies since the chat was last read, then 1 after Mark as Unread, then 0 once opened", async () => {
+    const mine = { id: "me", role: "user", kind: "text", text: "go", at: 5 };
+    const read = [mine, botText("a", 10), botText("b", 11), botText("c", 12)];
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [
+        bot("open"),
+        bot("later", { unread: true, readAt: 20, messages: [...read, botText("d", 30), botText("e", 31)] }),
+        bot("marked", { readAt: 20, messages: read }),
+      ],
+      groups: [room("room", { unread: true, readAt: 20, messages: [...read, botText("f", 30)] })],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="marked"]')).not.toBeNull());
+      expect(unreadBadge(host, "later")).toBe("2");
+      expect(unreadBadge(host, "room")).toBe("1");
+      await act(async () => dispatch()({ type: "markUnread", botId: "marked" }));
+      expect(unreadBadge(host, "marked")).toBe("1");
+      const patch = vi.mocked(fetch).mock.calls.find(([path, init]) => path === "/api/bots/marked" && init?.method === "PATCH");
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ unread: true, readAt: 11 });
+      await act(async () => dispatch()({ type: "select", id: "later" }));
+      expect(unreadBadge(host, "later")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
   it("badges normal, compact, and icon-only rows", async () => {
     const { host, unmount } = await mountSidebar({
       bots: [bot("open"), bot("pinned", { pinned: true, unread: true }), bot("plain", { unread: true })],

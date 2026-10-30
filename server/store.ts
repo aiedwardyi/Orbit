@@ -230,6 +230,8 @@ export interface GroupRecord {
   defaultResponder: GroupDefaultResponder;
   bulletin: string;
   unread: boolean;
+  /** When unread last cleared; rows count replies after it. */
+  readAt?: number;
   createdAt: number;
   /** true for auto-created bot⇄bot channels (ask_bot exchanges live here;
    * the user can open the channel and chip in) */
@@ -475,6 +477,8 @@ export interface BotRecord {
   /** Mascot, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
+  /** When unread last cleared; rows count replies after it. */
+  readAt?: number;
   modelSelection: ModelSelection;
   /** Picked mid-reply; becomes modelSelection when the bot goes idle. */
   pendingModelSelection?: ModelSelection;
@@ -1057,10 +1061,11 @@ export class Store {
     );
   }
 
-  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "bulletin" | "unread" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
+  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "bulletin" | "unread" | "readAt" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
     const group = this.group(id);
     if (!group) return null;
     Object.assign(group, patch);
+    if (patch.unread === false) group.readAt = Date.now();
     if (!group.dm && Object.prototype.hasOwnProperty.call(patch, "pinnedMessageId")) {
       const active = this.activeGroupTask(group.id);
       if (active) active.pinnedMessageId = patch.pinnedMessageId;
@@ -1493,6 +1498,7 @@ export class Store {
     // earlier chat lines from re-remembering the folder on a later turn.
     const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && patch.cwd == null;
     Object.assign(bot, patch);
+    if (patch.unread === false) bot.readAt = Date.now();
     if (clearingCwd) {
       delete bot.cwd;
       delete bot.lastProjectCwd;

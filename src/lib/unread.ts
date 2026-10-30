@@ -20,17 +20,33 @@ export function collapsedUnreadCount(
   );
 }
 
-/** Shown replies after your last message; an unread chat with none still shows 1. */
+type CountedMessage = { role?: string; kind?: string; summarized?: boolean; at?: number };
+
+const isReply = (message: CountedMessage) => message.role === "bot" && message.kind === "text" && isShownMessage(message);
+
+/** Shown replies since the chat was last read (since your last message for records without readAt); unread with none still shows 1. */
 export function unreadReplyCount(
   unread: boolean | undefined,
-  messages: ReadonlyArray<{ role?: string; kind?: string; summarized?: boolean }>,
+  readAt: number | undefined,
+  messages: ReadonlyArray<CountedMessage>,
 ): number {
   if (!unread) return 0;
   let count = 0;
-  for (let i = messages.length - 1; i >= 0 && messages[i].role !== "user"; i--) {
-    if (messages[i].role === "bot" && messages[i].kind === "text" && isShownMessage(messages[i])) count += 1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (readAt === undefined ? message.role === "user" : (message.at ?? 0) <= readAt) break;
+    if (isReply(message)) count += 1;
   }
   return Math.max(1, count);
+}
+
+/** Just before the last reply, so Mark as Unread counts 1. */
+export function markUnreadReadAt(messages: ReadonlyArray<CountedMessage>): number | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const at = messages[i].at;
+    if (isReply(messages[i]) && at !== undefined) return at - 1;
+  }
+  return undefined;
 }
 
 export function formatCollapsedUnreadBadge(count: number): string | null {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount, unreadReplyCount } from "./unread";
+import { collapsedUnreadCount, formatCollapsedUnreadBadge, markUnreadReadAt, unreadConversationCount, unreadReplyCount } from "./unread";
 
 describe("unreadConversationCount", () => {
   it("counts visible bot and room conversations but ignores archived bots", () => {
@@ -51,16 +51,28 @@ describe("formatCollapsedUnreadBadge", () => {
 });
 
 describe("unreadReplyCount", () => {
-  const reply = { role: "bot", kind: "text" };
-  const mine = { role: "user", kind: "text" };
+  const reply = (at: number) => ({ role: "bot", kind: "text", at });
+  const mine = (at: number) => ({ role: "user", kind: "text", at });
 
-  it("counts shown text replies after your last message", () => {
-    expect(unreadReplyCount(true, [reply, mine, reply, { role: "bot", kind: "activity" }, { ...reply, summarized: true }, reply])).toBe(2);
+  it("counts shown text replies since the chat was last read", () => {
+    const read = [mine(5), reply(10), reply(11), reply(12)];
+    expect(unreadReplyCount(true, 20, [...read, reply(30), { role: "bot", kind: "activity", at: 31 }, { ...reply(32), summarized: true }, reply(33)])).toBe(2);
+  });
+
+  it("counts 1 after Mark as Unread", () => {
+    const messages = [mine(5), reply(10), reply(11), reply(12), { role: "bot", kind: "activity", at: 13 }];
+    expect(markUnreadReadAt(messages)).toBe(11);
+    expect(unreadReplyCount(true, markUnreadReadAt(messages), messages)).toBe(1);
+    expect(markUnreadReadAt([mine(5)])).toBeUndefined();
+  });
+
+  it("counts after your last message for a record without readAt", () => {
+    expect(unreadReplyCount(true, undefined, [reply(1), mine(5), reply(10), reply(11)])).toBe(2);
   });
 
   it("is 0 for a read chat and at least 1 for an unread one", () => {
-    expect(unreadReplyCount(false, [mine, reply, reply])).toBe(0);
-    expect(unreadReplyCount(true, [reply, mine])).toBe(1);
-    expect(unreadReplyCount(true, [])).toBe(1);
+    expect(unreadReplyCount(false, 0, [mine(5), reply(10), reply(11)])).toBe(0);
+    expect(unreadReplyCount(true, 20, [reply(10), mine(15)])).toBe(1);
+    expect(unreadReplyCount(true, undefined, [])).toBe(1);
   });
 });

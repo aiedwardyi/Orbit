@@ -27,6 +27,7 @@ import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-cha
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
+import { markUnreadReadAt } from "@/lib/unread";
 import { openLiveEvents, snapshotCoversHello } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { botDraftId, returnSendsToComposer, takeQueuedDraft } from "@/lib/drafts";
@@ -415,7 +416,11 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, groups };
     }
     case "markUnread":
-      return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
+      return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({
+        ...b,
+        unread: true,
+        readAt: markUnreadReadAt(previewMessages(b)) ?? b.readAt,
+      }));
     case "markTerminalAttention": {
       const key = terminalAttentionKey(action.botId, action.sessionId);
       if (state.terminalAttention[key]) return state;
@@ -1768,11 +1773,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           break;
         }
-        case "markUnread":
-          api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
+        case "markUnread": {
+          const bot = stateRef.current.bots.find((b) => b.id === action.botId);
+          const readAt = bot ? markUnreadReadAt(previewMessages(bot)) : undefined;
+          api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true, readAt }) }).catch(
             () => {},
           );
           break;
+        }
         case "setWorkspaceOpen": {
           if (action.open || stateRef.current.activeView !== "chat") break;
           const selected = stateRef.current.selectedId;

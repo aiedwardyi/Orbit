@@ -26,7 +26,7 @@ export function compactSidebarModelLabel(label: string): string {
   return label.replace(/\s+Contributor$/i, " Cont.");
 }
 
-function UnreadCountBadge({ count, selected }: { count: number; selected: boolean }) {
+function UnreadCountBadge({ count, onAvatar = false, selected = false }: { count: number; onAvatar?: boolean; selected?: boolean }) {
   const { t } = useI18n();
   const shown = formatCollapsedUnreadBadge(count);
   if (!shown) return null;
@@ -36,8 +36,8 @@ function UnreadCountBadge({ count, selected }: { count: number; selected: boolea
       role="img"
       aria-label={t("chrome.unreadReplies", { count })}
       className={cn(
-        "pointer-events-none absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[11px] font-semibold leading-none tabular-nums text-accent-ink",
-        selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
+        "pointer-events-none flex h-4 min-w-4 shrink-0 items-center justify-center self-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none tabular-nums text-accent-ink",
+        onAvatar && ["absolute -right-1 -top-1 z-10 ring-[1.5px]", selected ? "ring-raised" : "ring-panel"],
       )}
     >
       {shown}
@@ -111,7 +111,7 @@ function GroupListItem({
   const last = group.messages.filter(isShownMessage).at(-1);
   const question = chatNeedsYou(group.messages);
   const asking = question || routineRinging(state.routineRuns, group.threadId, group.tasks);
-  const unreadCount = useMemo(() => unreadReplyCount(group.unread, group.messages), [group.unread, group.messages]);
+  const unreadCount = useMemo(() => unreadReplyCount(group.unread, group.readAt, group.messages), [group.unread, group.readAt, group.messages]);
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -221,11 +221,11 @@ function GroupListItem({
       >
         <span className="relative shrink-0">
           <StackedMauses members={members} density={density} />
-          <UnreadCountBadge count={unreadCount} selected={selected} />
+          {density === "icons" && <UnreadCountBadge count={unreadCount} onAvatar selected={selected} />}
         </span>
         <div className={cn("@container/rowtext min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
-            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
+            <span className={cn("min-w-0 flex-1 truncate text-[15px] text-ink", unreadCount ? "font-semibold" : "font-medium")}>
               {group.name}
               <span className="sr-only" aria-live="polite">{asking ? t(question ? "ask.hasQuestionSuffix" : "routine.rangSuffix") : ""}</span>
             </span>
@@ -239,6 +239,7 @@ function GroupListItem({
                 {formatTime(last.at, localeTag(locale))}
               </span>
             )}
+            {density !== "icons" && <UnreadCountBadge count={unreadCount} />}
           </div>
           <div className="flex items-center justify-between gap-2">
             <span
@@ -308,7 +309,7 @@ function BotListItem({
   const workerStatus = useMemo(() => sidebarWorkerStatus(visible, paneLabels ?? [], t), [visible, paneLabels, t]);
   const question = chatNeedsYou(bot.messages);
   const asking = question || routineRinging(state.routineRuns, bot.threadId, bot.tasks);
-  const unreadCount = useMemo(() => unreadReplyCount(bot.unread, visible), [bot.unread, visible]);
+  const unreadCount = useMemo(() => unreadReplyCount(bot.unread, bot.readAt, visible), [bot.unread, bot.readAt, visible]);
   const keepGoing = keepGoingMarkState(bot);
   const keepGoingLabel = keepGoing ? t(keepGoing === "on" ? "bot.keepGoingOnMark" : "bot.keepGoingPausedMark") : undefined;
   const rowClass = cn(
@@ -384,7 +385,7 @@ function BotListItem({
             </button>
           </span>
         ) : (
-          <UnreadCountBadge count={unreadCount} selected={selected} />
+          iconOnly && <UnreadCountBadge count={unreadCount} onAvatar selected={selected} />
         )}
       </span>
       <div
@@ -398,7 +399,8 @@ function BotListItem({
           <span
             className={cn(
               "flex min-w-0 flex-1 items-center gap-1.5 text-ink",
-              density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
+              density === "compact" ? "text-[13px]" : "text-[15px]",
+              unreadCount ? "font-semibold" : "font-medium",
             )}
           >
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
@@ -426,6 +428,7 @@ function BotListItem({
               {formatTime(last.at, localeTag(locale))}
             </span>
           )}
+          {!renaming && !iconOnly && <UnreadCountBadge count={unreadCount} />}
         </div>
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
