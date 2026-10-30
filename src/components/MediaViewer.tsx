@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ImageOff, LoaderCircle, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { PreviewImage } from "@/lib/media-viewer";
 import { reducedMotion } from "@/lib/phone-swipe";
@@ -43,6 +43,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
   const callbacks = useRef({ onClose, onNavigate, previous, next, closing });
   callbacks.current = { onClose, onNavigate, previous, next, closing };
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const src = attempt ? `${image.src}${image.src.includes("?") ? "&" : "?"}retry=${attempt}` : image.src;
@@ -129,10 +130,12 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     lastTap.current = null;
     clearTimeout(tapTimer.current);
     setFailed(false);
+    setLoading(true);
     setAttempt(0);
     setAnnouncement("");
     const img = imgRef.current;
     if (img?.complete && img.naturalWidth) {
+      setLoading(false);
       natural.current = { w: img.naturalWidth, h: img.naturalHeight };
       measure();
     }
@@ -335,9 +338,9 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     <div ref={rootRef} role={closing ? undefined : "dialog"} aria-modal={!closing || undefined}
       aria-label={t("viewer.preview", { name: image.name })} tabIndex={-1} inert={closing}
       data-media-viewer="" data-controls="visible" data-closing={closing || undefined}
-      className="orbit-inset-aware fixed inset-0 z-[70] flex touch-none flex-col overflow-hidden bg-panel text-ink outline-none"
+      className="orbit-inset-aware fixed inset-0 z-[70] flex touch-none flex-col overflow-hidden bg-black text-white outline-none"
       onPointerMove={wake}>
-      <header data-viewer-controls="" className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-hairline/40 bg-panel/95 px-4 backdrop-blur-sm">
+      <header data-viewer-controls="" className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-white/15 bg-black/80 px-4 backdrop-blur-sm">
         <div className="min-w-0 truncate text-[13px] font-medium" aria-live="polite">{image.name}</div>
         <div className="flex shrink-0 items-center gap-1">
           <a href={image.src} download={image.name} target="_blank" rel="noreferrer" className="media-viewer-button" aria-label={t("viewer.download", { name: image.name })} title={t("viewer.downloadTitle")}><Download size={18} /></a>
@@ -345,21 +348,22 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
         </div>
       </header>
       <div ref={stageRef} data-image-stage="" data-fit="true"
-        className="relative min-h-0 flex-1 touch-none select-none overflow-hidden bg-inset"
+        className="relative min-h-0 flex-1 touch-none select-none overflow-hidden bg-black"
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={(event) => endPointer(event)} onPointerCancel={(event) => endPointer(event, true)}>
-        {failed ? <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-secondary">
+        {loading && !failed && <LoaderCircle aria-hidden="true" data-viewer-loading="" size={28} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin text-white/70" />}
+        {failed ? <div className="flex h-full flex-col items-center justify-center gap-3 text-white/70">
           <ImageOff size={34} /><p>{t("viewer.unavailable")}</p>
           {image.caption && <p className="max-w-prose px-4 text-center text-[13px]">{image.caption}</p>}
-          <button className="rounded-lg bg-raised px-4 py-3 text-ink" onClick={() => { setFailed(false); setAttempt((n) => n + 1); }}>{t("viewer.retry")}</button>
+          <button className="rounded-lg bg-white/15 px-4 py-3 text-white hover:bg-white/25" onClick={() => { setFailed(false); setLoading(true); setAttempt((n) => n + 1); }}>{t("viewer.retry")}</button>
         </div> : <img ref={imgRef} key={image.src} src={src} alt={image.name} draggable={false}
           className="absolute left-0 top-0 h-full w-full max-w-none object-contain" style={{ transformOrigin: "0 0", maxWidth: "none" }}
-          onLoad={(event) => { natural.current = { w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight }; measure(); }}
+          onLoad={(event) => { setLoading(false); natural.current = { w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight }; measure(); }}
           onError={() => setFailed(true)} />}
       </div>
-      {previous && <button data-viewer-controls="" data-viewer-previous="" className="media-viewer-button absolute left-4 top-1/2 rounded-full border border-hairline/40 bg-panel/95 max-md:hidden" onClick={() => navigate(-1)} aria-label={t("viewer.previous")} title={t("viewer.previous")}><ChevronLeft size={22} /></button>}
-      {next && <button data-viewer-controls="" data-viewer-next="" className="media-viewer-button absolute right-4 top-1/2 rounded-full border border-hairline/40 bg-panel/95 max-md:hidden" onClick={() => navigate(1)} aria-label={t("viewer.next")} title={t("viewer.next")}><ChevronRight size={22} /></button>}
-      {!failed && <div data-viewer-controls="" className="media-viewer-zoom absolute left-1/2 flex -translate-x-1/2 rounded-full border border-hairline/40 bg-panel/95 px-1 shadow-sm">
+      {previous && <button data-viewer-controls="" data-viewer-previous="" className="media-viewer-button absolute left-4 top-1/2 rounded-full border border-white/15 max-md:hidden" onClick={() => navigate(-1)} aria-label={t("viewer.previous")} title={t("viewer.previous")}><ChevronLeft size={22} /></button>}
+      {next && <button data-viewer-controls="" data-viewer-next="" className="media-viewer-button absolute right-4 top-1/2 rounded-full border border-white/15 max-md:hidden" onClick={() => navigate(1)} aria-label={t("viewer.next")} title={t("viewer.next")}><ChevronRight size={22} /></button>}
+      {!failed && <div data-viewer-controls="" className="media-viewer-zoom absolute left-1/2 flex -translate-x-1/2 rounded-full border border-white/15 bg-black/65 px-1 shadow-sm">
         <button className="media-viewer-button px-3 text-[13px]" title={t("viewer.fitShortcut")} aria-label={t("viewer.fitShortcut")} onClick={() => shortcut("reset")}>{t("viewer.fit")}</button>
         <button className="media-viewer-button px-3 text-[13px]" title={t("viewer.nativeShortcut")} aria-label={t("viewer.nativeShortcut")} onClick={() => { if (frame.current) apply(zoomAround(view.current, center(), frame.current, (frame.current.fit === 1 ? 2 : 1) / view.current.scale)); setAnnouncement(t("viewer.native")); }}>{t("viewer.native")}</button>
       </div>}

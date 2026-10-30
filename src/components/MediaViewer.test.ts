@@ -46,6 +46,27 @@ afterEach(async () => {
 });
 
 describe("media reader regressions", () => {
+  it.each(["precision", "wink-day"])("keeps the viewer black with light controls in %s", async (skin) => {
+    document.documentElement.dataset.skin = skin;
+    try {
+      await render(createElement(MediaViewer, { image, onClose: vi.fn(), previous: true, next: true }));
+      const reader = document.querySelector<HTMLElement>("[data-media-viewer]")!;
+      expect(reader.classList.contains("bg-black")).toBe(true);
+      expect(reader.classList.contains("text-white")).toBe(true);
+      expect(stage().classList.contains("bg-black")).toBe(true);
+      expect(reader.querySelector("[data-viewer-loading]")?.classList.contains("text-white/70")).toBe(true);
+      await load();
+      expect(reader.querySelector("[data-viewer-loading]")).toBeNull();
+      await act(async () => stage().querySelector("img")!.dispatchEvent(new Event("error")));
+      expect(stage().firstElementChild?.classList.contains("text-white/70")).toBe(true);
+      expect(stage().querySelector("button")?.classList.contains("text-white")).toBe(true);
+      await act(async () => stage().querySelector("button")!.click());
+      expect(reader.querySelector("[data-viewer-loading]")).not.toBeNull();
+    } finally {
+      delete document.documentElement.dataset.skin;
+    }
+  });
+
   it("opens the desktop file when its link contains an image", async () => {
     const bridge = window.ogb;
     const openFile = vi.fn(async () => undefined);
