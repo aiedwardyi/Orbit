@@ -107,7 +107,6 @@ export function showAvatarFormatsHint(): boolean {
   return false;
 }
 
-
 export function showBotMenuCopy(): boolean {
   return false;
 }
