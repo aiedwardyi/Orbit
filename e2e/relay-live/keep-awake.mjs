@@ -252,9 +252,12 @@ async function openPhoneAccess() {
   await page.getByRole("button", { name: "App settings" }).first().click({ timeout: 90_000 });
   const connections = page.getByRole("dialog").getByRole("button", { name: "Connections", exact: true });
   await connections.waitFor();
-  // Phone access moved to Account in 1.0.171
+  // Phone access moved to Account in 1.0.171, then behind Phone's relay link in 1.0.216
+  const phone = page.getByRole("dialog").getByRole("button", { name: "Phone", exact: true });
   const account = page.getByRole("dialog").getByRole("button", { name: "Account", exact: true });
-  await ((await account.count()) ? account : connections).click();
+  await ((await phone.count()) ? phone : (await account.count()) ? account : connections).click();
+  const relay = page.locator('button[aria-controls="phone-relay-settings"]');
+  if (await relay.count() && await relay.getAttribute("aria-expanded") !== "true") await relay.click();
   const title = page.getByText(/^Phone access( from anywhere)?$/i).first();
   await title.waitFor({ timeout: 30_000 });
   await title.scrollIntoViewIfNeeded();
