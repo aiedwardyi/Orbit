@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetArrivalGlow } from "@/lib/arrival-glow";
+import { I18nProvider } from "@/lib/i18n";
 import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_COLLAPSED_SECTIONS_KEY } from "@/lib/sidebar-preferences";
 import { StoreProvider, useStore } from "@/state/store";
 
@@ -73,6 +74,7 @@ afterEach(() => {
   window.localStorage.removeItem(SIDEBAR_COLLAPSED_SECTIONS_KEY);
   window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
   window.localStorage.removeItem("omb-onboarding-done");
+  window.localStorage.removeItem("omb-locale");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -88,7 +90,7 @@ async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }) {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   await act(async () =>
-    root.render(createElement(StoreProvider, null, createElement(SidebarWithDispatch))),
+    root.render(createElement(I18nProvider, null, createElement(StoreProvider, null, createElement(SidebarWithDispatch)))),
   );
   await act(async () => FakeEventSource.current!.onmessage?.({
     data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
@@ -184,6 +186,67 @@ async function mountApp(bots: unknown[]) {
 }
 
 describe("Sidebar unread count", () => {
+  it.each(["en", "ko"])("announces unread counts on icon-only controls in %s", async (locale) => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    window.localStorage.setItem("omb-locale", locale);
+    const messages = [botText("a", 10), botText("b", 11)];
+    const view = await mountSidebar({
+      bots: [bot("open"), bot("closed", { unread: true, messages })],
+      groups: [room("room", { unread: true, messages })],
+    });
+    try {
+      for (const id of ["closed", "room"]) {
+        expect(rowControl(view.host, id).control?.getAttribute("aria-label")).toContain(locale === "ko" ? "새 메시지 2개" : "2 new");
+      }
+      expect(rowControl(view.host, "open").control?.getAttribute("aria-label")).not.toContain(locale === "ko" ? "새 메시지" : "new");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it.each(["bot", "group"])("counts only replies unseen after leaving a running %s turn", async (kind) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const owner = kind === "bot" ? bot("open", { readAt: 5 }) : room("room", { readAt: 5 });
+    const id = owner.id;
+    const threadId = owner.threadId;
+    const view = await mountSidebar({ bots: [bot("other"), ...(kind === "bot" ? [owner] : [])], groups: kind === "group" ? [owner] : [] });
+    try {
+      await act(async () => view.dispatch()({ type: "select", id }));
+      await sendFrame(replyFrame(threadId, botText("seen-a", 10)));
+      await sendFrame(replyFrame(threadId, { ...botText("seen-b", 11), parentId: "seen-a" }));
+      expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(0);
+      await act(async () => view.dispatch()({ type: "select", id: "other" }));
+      await sendFrame(replyFrame(threadId, { ...botText("unseen-a", 12), parentId: "seen-b" }));
+      await sendFrame(replyFrame(threadId, { ...botText("unseen-b", 13), parentId: "unseen-a" }));
+      await sendFrame({ kind, [kind]: { ...owner, messages: undefined, unread: true } });
+      expect(unreadBadge(view.host, id)).toBe("2");
+      const patch = vi.mocked(fetch).mock.calls.find(([path, init]) => path === `/api/${kind === "bot" ? "bots" : "groups"}/${id}` && init?.method === "PATCH");
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ readAt: 11 });
+      await sendFrame({ kind, [kind]: { ...owner, messages: undefined, unread: true } });
+      expect(unreadBadge(view.host, id)).toBe("2");
+      await sendFrame({ kind, [kind]: { ...owner, messages: undefined, unread: true, readAt: 11 } });
+      expect(unreadBadge(view.host, id)).toBe("2");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it.each(["unfocused", "hidden", "workspace", "plugins", "settings"])("does not advance the boundary while the chat is %s", async (cover) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(cover !== "unfocused");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue(cover === "hidden" ? "hidden" : "visible");
+    const view = await mountSidebar({ bots: [bot("open", { readAt: 5 })], groups: [] });
+    try {
+      if (cover === "workspace") await act(async () => view.dispatch()({ type: "setWorkspaceOpen", open: true }));
+      if (cover === "plugins") await act(async () => view.dispatch()({ type: "togglePlugins", open: true }));
+      if (cover === "settings") await act(async () => view.dispatch()({ type: "toggleAppSettings", open: true }));
+      await sendFrame(replyFrame("open-thread", botText("unseen", 10)));
+      await sendFrame({ kind: "bot", bot: bot("open", { readAt: 5 }) });
+      expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(0);
+    } finally {
+      await view.unmount();
+    }
+  });
+
   it("badges an unread bot row with its count and no halo", async () => {
     const { host, unmount } = await mountSidebar({ bots: [bot("open"), bot("closed", { unread: true })], groups: [] });
     try {

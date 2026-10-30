@@ -258,6 +258,10 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
         if (typeof body.unread !== "boolean") return json(res, 400, { error: "unread must be true or false" });
         patch.unread = body.unread;
       }
+      if (body.readAt !== undefined) {
+        if (!Number.isFinite(body.readAt)) return json(res, 400, { error: "readAt must be a time in ms" });
+        patch.readAt = body.readAt;
+      }
       if (body.memberIds !== undefined) {
         // A DM is the pair it was opened for; only real rooms have a roster.
         if (existing.dm) return json(res, 400, { error: "direct-message channels cannot change members" });

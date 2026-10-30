@@ -34,7 +34,7 @@ export function unreadReplyCount(
   let count = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (readAt === undefined ? message.role === "user" : (message.at ?? 0) <= readAt) break;
+    if (readAt === undefined ? message.role === "user" : (message.at ?? Infinity) <= readAt) break;
     if (isReply(message)) count += 1;
   }
   return Math.max(1, count);

@@ -66,6 +66,11 @@ describe("unreadReplyCount", () => {
     expect(markUnreadReadAt([mine(5)])).toBeUndefined();
   });
 
+  it("keeps counting past a message without a timestamp", () => {
+    expect(unreadReplyCount(true, 5, [reply(10), { role: "bot", kind: "activity" }, reply(12)])).toBe(2);
+    expect(unreadReplyCount(true, 5, [reply(10), { role: "bot", kind: "text" }, reply(12)])).toBe(3);
+  });
+
   it("counts after your last message for a record without readAt", () => {
     expect(unreadReplyCount(true, undefined, [reply(1), mine(5), reply(10), reply(11)])).toBe(2);
   });

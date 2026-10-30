@@ -1064,8 +1064,8 @@ export class Store {
   patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "bulletin" | "unread" | "readAt" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
     const group = this.group(id);
     if (!group) return null;
-    Object.assign(group, patch);
     if (patch.unread === false) group.readAt = Date.now();
+    Object.assign(group, patch);
     if (!group.dm && Object.prototype.hasOwnProperty.call(patch, "pinnedMessageId")) {
       const active = this.activeGroupTask(group.id);
       if (active) active.pinnedMessageId = patch.pinnedMessageId;
@@ -1497,8 +1497,8 @@ export class Store {
     // forgetProjectCwd and leaves an explicit pin alone. The stamp keeps
     // earlier chat lines from re-remembering the folder on a later turn.
     const clearingCwd = Object.prototype.hasOwnProperty.call(patch, "cwd") && patch.cwd == null;
-    Object.assign(bot, patch);
     if (patch.unread === false) bot.readAt = Date.now();
+    Object.assign(bot, patch);
     if (clearingCwd) {
       delete bot.cwd;
       delete bot.lastProjectCwd;

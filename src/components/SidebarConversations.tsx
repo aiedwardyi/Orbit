@@ -112,6 +112,7 @@ function GroupListItem({
   const question = chatNeedsYou(group.messages);
   const asking = question || routineRinging(state.routineRuns, group.threadId, group.tasks);
   const unreadCount = useMemo(() => unreadReplyCount(group.unread, group.readAt, group.messages), [group.unread, group.readAt, group.messages]);
+  const iconLabel = [asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: group.name }) : group.name, unreadCount ? t("chrome.unreadReplies", { count: unreadCount }) : null].filter(Boolean).join(" · ");
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -216,7 +217,7 @@ function GroupListItem({
           selected ? "bg-raised" : "hover:bg-raised/50",
           asking && "relative needs-you-glow",
         )}
-        aria-label={density === "icons" ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: group.name }) : group.name) : undefined}
+        aria-label={density === "icons" ? iconLabel : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
         <span className="relative shrink-0">
@@ -322,6 +323,7 @@ function BotListItem({
     asking && "relative needs-you-glow",
   );
   const iconLabel = [bot.name, workerStatus || modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
+  const accessibleIconLabel = [asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: iconLabel }) : iconLabel, unreadCount ? t("chrome.unreadReplies", { count: unreadCount }) : null].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
@@ -529,7 +531,7 @@ function BotListItem({
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: iconLabel }) : iconLabel) : undefined}
+        aria-label={iconOnly ? accessibleIconLabel : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
           select();
