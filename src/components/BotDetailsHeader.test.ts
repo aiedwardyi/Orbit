@@ -13,6 +13,7 @@ const acceptedSends: AcceptedSends = {};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatView = readFileSync(join(here, "ChatView.tsx"), "utf8");
+const phoneHeaderName = readFileSync(join(here, "..", "lib", "use-phone-header-name.ts"), "utf8");
 const computerPanel = readFileSync(join(here, "ComputerPanel.tsx"), "utf8");
 const settingsPanel = readFileSync(join(here, "SettingsPanel.tsx"), "utf8");
 
@@ -54,14 +55,14 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(phone).not.toContain("w-full");
     expect(chatHeader).toContain("max-md:flex-[0_1000_auto]");
     expect(chatHeader).not.toContain("minmax(4.5rem,1fr)");
-    expect(chatView).toContain('cluster.style.flex = "0 1000 auto"');
-    expect(chatView).toContain("phoneHeaderSlots(text, 4 * rem)");
-    expect(chatView).not.toContain("4.5 * rem");
-    const hook = chatView.slice(chatView.indexOf("function usePhoneHeaderNameFloor"), chatView.indexOf("export function ChatView"));
-    expect(hook).not.toContain("aria-label");
-    expect(hook).toContain('querySelector("[data-chat-terminal]")');
+    expect(phoneHeaderName).toContain('cluster.style.flex = "0 1000 auto"');
+    expect(phoneHeaderName).toContain("phoneHeaderSlots(Math.max(text, statusWidth), Math.max(4 * rem, statusWidth))");
+    expect(phoneHeaderName).not.toContain("4.5 * rem");
+    expect(phoneHeaderName).not.toContain("aria-label");
+    expect(phoneHeaderName).toContain('querySelector("[data-chat-terminal]")');
     expect(chatHeader).toContain("data-chat-terminal");
-    expect(chatHeader).toContain('className="min-w-0 flex-1 overflow-hidden max-md:hidden"');
+    expect(chatHeader).toContain('data-chat-name className="min-w-0 flex-1"');
+    expect(chatHeader).toContain('className="min-w-0 max-md:hidden"');
     expect(chatHeader).toContain("showEditButton");
   });
 
