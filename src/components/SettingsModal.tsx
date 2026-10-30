@@ -310,7 +310,7 @@ function VibrationRow() {
     <Card title={t("settings.vibration.title")}>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[14px] font-medium text-ink">{t("settings.vibration.toggle")}</div>
+          <div className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.vibration.help")}</div>
         </div>
         <button
           role="switch"
