@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { adjacentMedia, markdownImage, mediaList, type MediaMessage, type MediaReference, type PreviewImage } from "@/lib/media-viewer";
 import { useI18n } from "@/lib/i18n";
 import { MediaViewer } from "./MediaViewer";
@@ -11,31 +11,40 @@ const MediaContext = createContext<{
 export function MediaViewerProvider({ threadId, messages, children }: { threadId: string; messages: readonly MediaMessage[]; children: ReactNode }) {
   const [selected, setSelected] = useState<PreviewImage | null>(null);
   const [rendered, setRendered] = useState<MediaReference[]>([]);
+  const [images, setImages] = useState<MediaReference[]>([]);
   const [seenThread, setSeenThread] = useState(threadId);
   if (seenThread !== threadId) {
     setSeenThread(threadId);
     setSelected(null);
     setRendered([]);
   }
-  const images = useMemo(() => mediaList(messages, rendered), [messages, rendered]);
-  const imagesRef = useRef(images);
-  imagesRef.current = images;
+  const source = useRef({ messages, rendered });
+  source.current = { messages, rendered };
   const open = useCallback((image: PreviewImage, opener: HTMLElement) => {
     opener.focus({ preventScroll: true });
+    const list = mediaList(source.current.messages, source.current.rendered);
+    setImages(list);
     const messageId = opener.closest("[data-mid]")?.getAttribute("data-mid");
-    setSelected(imagesRef.current.find((item) => item.messageId === messageId && item.src === image.src)
-      ?? imagesRef.current.find((item) => item.src === image.src) ?? image);
+    setSelected(list.find((item) => item.messageId === messageId && item.src === image.src)
+      ?? list.find((item) => item.src === image.src) ?? image);
   }, []);
   const register = useCallback((image: MediaReference) => {
     setRendered((items) => [...items, image]);
     return () => setRendered((items) => items.filter((item) => item !== image));
   }, []);
   const context = useMemo(() => ({ open, register }), [open, register]);
+  useEffect(() => {
+    if (!selected) return;
+    for (const direction of [-1, 1]) {
+      const adjacent = adjacentMedia(images, selected, direction);
+      if (adjacent) new Image().src = adjacent.src;
+    }
+  }, [images, selected]);
   return <MediaContext.Provider value={context}>
     {children}
     {selected && <MediaViewer image={selected} onClose={() => setSelected(null)}
       previous={Boolean(adjacentMedia(images, selected, -1))} next={Boolean(adjacentMedia(images, selected, 1))}
-      onNavigate={(direction) => setSelected((current) => current && (adjacentMedia(imagesRef.current, current, direction) ?? current))} />}
+      onNavigate={(direction) => setSelected((current) => current && (adjacentMedia(images, current, direction) ?? current))} />}
   </MediaContext.Provider>;
 }
 
@@ -48,13 +57,17 @@ export function ReadableImage({ src, alt = "", ...props }: { src?: string; alt?:
   const viewer = useMediaViewer();
   const ref = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState(false);
+  const [linked, setLinked] = useState(false);
   const image = useMemo(() => markdownImage(src, alt), [src, alt]);
+  useLayoutEffect(() => {
+    if (ref.current?.closest("a")) setLinked(true);
+  }, []);
   useEffect(() => {
     const messageId = ref.current?.closest("[data-mid]")?.getAttribute("data-mid");
-    if (!viewer || !image || !messageId) return;
+    if (!viewer || !image || !messageId || linked) return;
     return viewer.register({ ...image, messageId, id: `${messageId}:${image.src}` });
-  }, [viewer, image]);
-  if (!image) return <img src={src} alt={alt} {...props} />;
+  }, [viewer, image, linked]);
+  if (!image || linked) return <img src={src} alt={alt} {...props} />;
   return <>
     <button ref={ref} type="button" className="inline-block max-w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-accent"
       aria-label={t("viewer.open", { name: image.name })}

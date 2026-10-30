@@ -44,24 +44,15 @@
   cursor: grabbing;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
   [data-viewer-previous],
   [data-viewer-next] {
     display: none;
   }
 
-  [data-controls="hidden"] header[data-viewer-controls] {
+  [data-controls="hidden"] header[data-viewer-controls]:not(:focus-within) {
     opacity: 1;
     pointer-events: auto;
-    background: transparent;
-    border-color: transparent;
-    backdrop-filter: none;
-  }
-
-  [data-controls="hidden"] header[data-viewer-controls] > :first-child,
-  [data-controls="hidden"] header[data-viewer-controls] a {
-    opacity: 0;
-    pointer-events: none;
   }
 }
 

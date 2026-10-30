@@ -239,6 +239,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // App-wide shortcuts: Alt+T Themes · Alt+Shift+T Cycle theme · Alt+U Usage · Alt+I Model index · Alt+W Workers · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector("[data-media-viewer]")) return;
       const mod = e.metaKey || e.ctrlKey;
       if (e.altKey && !mod && !e.shiftKey && e.code === "KeyI") {
         e.preventDefault();
@@ -610,6 +611,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   useEffect(() => {
     const toggleTerminal = (event: KeyboardEvent) => {
+      if (document.querySelector("[data-media-viewer]")) return;
       if (event.repeat || event.isComposing) return;
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.code !== "Backquote") return;
       if (!backquoteTogglesTerminal(Boolean(window.ogb), Boolean(window.ogb?.terminal)) || !bot || group || state.activeView !== "chat" || nativeViewOverlayOpen || browserWorkspaceBotId || localVmWorkspaceBotId) return;

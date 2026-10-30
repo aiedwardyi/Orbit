@@ -11,8 +11,9 @@ describe("active chat media", () => {
     expect(mediaList(messages.slice(0, 2)).map((image) => image.messageId)).toEqual(["m1", "m2"]);
   });
 
-  it("does not duplicate a source repeated in its caption or markdown", () => {
-    expect(mediaList([user("m1", "first.png"), shown("m2", "first.png"), { id: "m3", role: "bot", kind: "text", text: "![Again](/api/attachments/first.png)" }])).toHaveLength(1);
+  it("keeps copies in different messages and deduplicates within each message", () => {
+    const images = mediaList([user("m1", "first.png"), shown("m2", "first.png"), { id: "m3", role: "bot", kind: "text", text: "![Again](/api/attachments/first.png)\n\n![Copy](/api/attachments/first.png)" }]);
+    expect(images.map((image) => image.messageId)).toEqual(["m1", "m2", "m3"]);
   });
 
   it("keeps the current reference stable when new messages arrive or older messages are loaded", () => {

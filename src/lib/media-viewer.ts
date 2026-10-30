@@ -34,9 +34,9 @@ export function markdownImage(src: string | undefined, alt = ""): PreviewImage |
 }
 
 export function mediaList(messages: readonly MediaMessage[], rendered: readonly MediaReference[] = []): MediaReference[] {
-  const seen = new Set<string>();
   const result: MediaReference[] = [];
   for (const message of messages) {
+    const seen = new Set<string>();
     const add = (image: PreviewImage | null) => {
       if (!image || seen.has(image.src)) return;
       seen.add(image.src);

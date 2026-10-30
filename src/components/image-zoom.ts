@@ -67,7 +67,7 @@ export function panBy(view: ZoomView, dx: number, dy: number, frame: ZoomFrame):
 }
 
 export function toggleZoomAt(view: ZoomView, point: { x: number; y: number }, frame: ZoomFrame): ZoomView {
-  return atFit(view, frame) ? zoomAround(view, point, frame, 1 / view.scale) : fitView(frame);
+  return atFit(view, frame) ? zoomAround(view, point, frame, (frame.fit === 1 ? 2 : 1) / view.scale) : fitView(frame);
 }
 
 export function resizeView(view: ZoomView, before: ZoomFrame, after: ZoomFrame): ZoomView {

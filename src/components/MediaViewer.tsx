@@ -33,6 +33,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
   const drag = useRef<Drag | null>(null);
   const pinch = useRef<{ distance: number; mid: Point; view: ZoomView } | null>(null);
   const dismiss = useRef(0);
+  const swipeX = useRef(0);
   const raf = useRef(0);
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -66,14 +67,15 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     const f = frame.current;
     const img = imgRef.current;
     const stage = stageRef.current;
-    if (!f || !img || !stage) return;
+    if (!stage) return;
+    stage.style.transform = dismiss.current || swipeX.current ? `translate3d(${swipeX.current}px, ${dismiss.current}px, 0)` : "";
+    if (!f || !img) return;
     const v = view.current;
     const x = (f.viewW - f.sourceW * v.scale) / 2 + v.panX;
     const y = (f.viewH - f.sourceH * v.scale) / 2 + v.panY;
     img.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${v.scale})`;
     stage.dataset.zoom = String(v.scale);
     stage.dataset.fit = String(atFit(v, f));
-    stage.style.transform = dismiss.current ? `translate3d(0, ${dismiss.current}px, 0)` : "";
   };
 
   const schedule = () => {
@@ -106,7 +108,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     const img = imgRef.current;
     if (!stage || !img || natural.current.w < 1) return;
     const bounds = stage.getBoundingClientRect();
-    rect.current = { left: bounds.left, top: bounds.top - dismiss.current };
+    rect.current = { left: bounds.left - swipeX.current, top: bounds.top - dismiss.current };
     if (stage.clientWidth < 1 || stage.clientHeight < 1) return;
     const f = imageFrame(stage.clientWidth, stage.clientHeight, natural.current.w, natural.current.h);
     view.current = frame.current ? resizeView(view.current, frame.current, f) : fitView(f);
@@ -123,6 +125,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     drag.current = null;
     pinch.current = null;
     dismiss.current = 0;
+    swipeX.current = 0;
     lastTap.current = null;
     clearTimeout(tapTimer.current);
     setFailed(false);
@@ -176,7 +179,11 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
           (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
         }
         event.stopImmediatePropagation();
+      } else if (event.altKey || event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
       }
+      event.stopImmediatePropagation();
     };
     window.addEventListener("keydown", onKey, true);
     const api = window.ogb?.imageZoom;
@@ -220,7 +227,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
   const point = (event: ReactPointerEvent) => ({ x: event.clientX - rect.current.left, y: event.clientY - rect.current.top });
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!frame.current || failed || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (callbacks.current.closing || (event.target instanceof Element && event.target.closest("button")) || (event.pointerType === "mouse" && event.button !== 0)) return;
     event.preventDefault();
     const p = point(event);
     pointers.current.set(event.pointerId, p);
@@ -230,6 +237,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
       lastTap.current = null;
       drag.current = null;
       dismiss.current = 0;
+      swipeX.current = 0;
       schedule();
       const [a, b] = [...pointers.current.values()];
       pinch.current = { distance: Math.hypot(b.x - a.x, b.y - a.y) || 1, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, view: view.current };
@@ -240,11 +248,11 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const f = frame.current;
-    if (!f || !pointers.current.has(event.pointerId)) return;
+    if (!pointers.current.has(event.pointerId)) return;
     const p = point(event);
     pointers.current.set(event.pointerId, p);
     const start = pinch.current;
-    if (pointers.current.size >= 2 && start) {
+    if (pointers.current.size >= 2 && start && f) {
       const [a, b] = [...pointers.current.values()];
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       apply(zoomAround(start.view, start.mid, f, Math.hypot(b.x - a.x, b.y - a.y) / start.distance, { x: mid.x - start.mid.x, y: mid.y - start.mid.y }));
@@ -264,19 +272,23 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
       lastTap.current = null;
     }
     if (!d.moved) return;
-    if (!atFit(d.view, f)) apply(panBy(d.view, dx, dy, f));
+    if (f && !atFit(d.view, f)) apply(panBy(d.view, dx, dy, f));
     else if (d.touch && d.axis === "y") {
       dismiss.current = reducedMotion() ? 0 : Math.max(0, dy);
+      schedule();
+    } else if (d.touch && d.axis === "x") {
+      swipeX.current = reducedMotion() ? 0 : dx;
       schedule();
     }
   };
 
   const settle = () => {
     const stage = stageRef.current;
-    if (stage && dismiss.current && !reducedMotion()) {
-      stage.animate?.([{ transform: `translateY(${dismiss.current}px)` }, { transform: "translateY(0)" }], { duration: 160, easing: "ease-out" });
+    if (stage && (dismiss.current || swipeX.current) && !reducedMotion()) {
+      stage.animate?.([{ transform: `translate3d(${swipeX.current}px, ${dismiss.current}px, 0)` }, { transform: "translate3d(0, 0, 0)" }], { duration: 160, easing: "ease-out" });
     }
     dismiss.current = 0;
+    swipeX.current = 0;
     schedule();
   };
 
@@ -289,11 +301,15 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     drag.current = null;
-    if (!f || !d || wasPinch || cancelled) { settle(); return; }
+    if (wasPinch && !cancelled && pointers.current.size === 1) {
+      const remaining = [...pointers.current.values()][0];
+      drag.current = { point: remaining, view: view.current, lastY: remaining.y, lastTime: event.timeStamp, velocity: 0, moved: true, touch: false, axis: null };
+    }
+    if (!d || wasPinch || cancelled) { settle(); return; }
     const dx = p.x - d.point.x;
     const dy = p.y - d.point.y;
     if (d.moved) {
-      if (d.touch && atFit(d.view, f)) {
+      if (d.touch && (!f || atFit(d.view, f))) {
         if (d.axis === "y" && (dy >= 96 || (dy >= 24 && event.timeStamp - d.lastTime < 100 && d.velocity > 0.6))) { close(); return; }
         if (d.axis === "x" && Math.abs(dx) >= 64) navigate(dx < 0 ? 1 : -1);
       }
@@ -302,7 +318,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
     }
     const last = lastTap.current;
     clearTimeout(tapTimer.current);
-    if (last && event.timeStamp - last.time < 300 && Math.hypot(p.x - last.point.x, p.y - last.point.y) < 28) {
+    if (f && last && event.timeStamp - last.time < 300 && Math.hypot(p.x - last.point.x, p.y - last.point.y) < 28) {
       lastTap.current = null;
       apply(toggleZoomAt(view.current, p, f));
       setAnnouncement(atFit(view.current, f) ? t("viewer.fit") : t("viewer.native"));
@@ -327,7 +343,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
       <header data-viewer-controls="" className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-hairline/40 bg-panel/95 px-4 backdrop-blur-sm">
         <div className="min-w-0 truncate text-[13px] font-medium" aria-live="polite">{image.name}</div>
         <div className="flex shrink-0 items-center gap-1">
-          <a href={image.src} download={image.name} className="media-viewer-button" aria-label={t("viewer.download", { name: image.name })} title={t("viewer.downloadTitle")}><Download size={18} /></a>
+          <a href={image.src} download={image.name} target="_blank" rel="noreferrer" className="media-viewer-button" aria-label={t("viewer.download", { name: image.name })} title={t("viewer.downloadTitle")}><Download size={18} /></a>
           <button onClick={close} data-viewer-close="" className="media-viewer-button" aria-label={t("viewer.close")} title={t("viewer.close")}><X size={20} /></button>
         </div>
       </header>
@@ -340,7 +356,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
           {image.caption && <p className="max-w-prose px-4 text-center text-[13px]">{image.caption}</p>}
           <button className="rounded-lg bg-raised px-4 py-3 text-ink" onClick={() => { setFailed(false); setAttempt((n) => n + 1); }}>{t("viewer.retry")}</button>
         </div> : <img ref={imgRef} key={image.src} src={src} alt={image.name} draggable={false}
-          className="absolute left-0 top-0 max-w-none" style={{ transformOrigin: "0 0", maxWidth: "none" }}
+          className="absolute left-0 top-0 h-full w-full max-w-none object-contain" style={{ transformOrigin: "0 0", maxWidth: "none" }}
           onLoad={(event) => { natural.current = { w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight }; measure(); }}
           onError={() => setFailed(true)} />}
       </div>
@@ -348,7 +364,7 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
       {next && <button data-viewer-controls="" data-viewer-next="" className="media-viewer-button absolute right-4 top-1/2 rounded-full border border-hairline/40 bg-panel/95 max-md:hidden" onClick={() => navigate(1)} aria-label={t("viewer.next")} title={t("viewer.next")}><ChevronRight size={22} /></button>}
       {!failed && <div data-viewer-controls="" className="media-viewer-zoom absolute left-1/2 flex -translate-x-1/2 rounded-full border border-hairline/40 bg-panel/95 px-1 shadow-sm">
         <button className="media-viewer-button px-3 text-[13px]" title={t("viewer.fitShortcut")} aria-label={t("viewer.fitShortcut")} onClick={() => shortcut("reset")}>{t("viewer.fit")}</button>
-        <button className="media-viewer-button px-3 text-[13px]" title={t("viewer.nativeShortcut")} aria-label={t("viewer.nativeShortcut")} onClick={() => { if (frame.current) apply(zoomAround(view.current, center(), frame.current, 1 / view.current.scale)); setAnnouncement(t("viewer.native")); }}>{t("viewer.native")}</button>
+        <button className="media-viewer-button px-3 text-[13px]" title={t("viewer.nativeShortcut")} aria-label={t("viewer.nativeShortcut")} onClick={() => { if (frame.current) apply(zoomAround(view.current, center(), frame.current, (frame.current.fit === 1 ? 2 : 1) / view.current.scale)); setAnnouncement(t("viewer.native")); }}>{t("viewer.native")}</button>
       </div>}
       <span role="status" className="sr-only">{announcement}</span>
     </div>, document.body,
