@@ -10,6 +10,7 @@ import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
 import { SWIPE_MOTION_MS } from "@/lib/phone-swipe";
 import { WORKER_STATUS, WorkerChip, WorkerRow, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { MediaViewer } from "./MediaViewer";
 
 const run = (label: string) => {
   const launch: Message = { id: "l1", at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: aaaaaaaa-1` };
@@ -507,6 +508,31 @@ describe("WorkerChip", () => {
     try {
       expect(host.querySelector("[data-worker-status]")).toBeNull();
     } finally {
+      await unmount();
+    }
+  });
+
+  it("keeps the desktop worker menu open when Escape closes the reader above it", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const readerHost = document.createElement("div");
+    document.body.append(readerHost);
+    const reader = createRoot(readerHost);
+    const onClose = vi.fn();
+    try {
+      await act(async () => chip()!.click());
+      await act(async () => reader.render(createElement(MediaViewer, { image: { src: "/api/attachments/test.png", name: "test.png" }, onClose })));
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(host.querySelector("[data-worker-list]")).not.toBeNull();
+      await act(async () => reader.unmount());
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      expect(host.querySelector("[data-worker-list]")).toBeNull();
+      expect(document.activeElement).toBe(chip());
+    } finally {
+      await act(async () => reader.unmount());
+      readerHost.remove();
       await unmount();
     }
   });

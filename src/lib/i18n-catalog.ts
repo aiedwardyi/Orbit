@@ -3,6 +3,19 @@
 // filenames, and stored transcripts are not keys and must never pass through
 // translate().
 export const en = {
+  "viewer.preview": "Preview {name}",
+  "viewer.download": "Download {name}",
+  "viewer.downloadTitle": "Download",
+  "viewer.close": "Close Image Preview",
+  "viewer.unavailable": "This Image Is No Longer Available.",
+  "viewer.retry": "Retry",
+  "viewer.fit": "Fit",
+  "viewer.native": "100%",
+  "viewer.fitShortcut": "Fit (0)",
+  "viewer.nativeShortcut": "100% (Double Click Or Tap)",
+  "viewer.previous": "Previous Image (Left Arrow)",
+  "viewer.next": "Next Image (Right Arrow)",
+  "viewer.open": "Open Image {name}",
   "confirm.deleteVm": "Delete Local VM",
   "confirm.replaceVm": "Replace Local VM",
   "confirm.replaceVps": "Replace VPS Computer",
@@ -1596,6 +1609,19 @@ export const en = {
 export type MessageKey = keyof typeof en;
 
 export const ko = {
+  "viewer.preview": "{name} 미리보기",
+  "viewer.download": "{name} 다운로드",
+  "viewer.downloadTitle": "다운로드",
+  "viewer.close": "이미지 미리보기 닫기",
+  "viewer.unavailable": "이 이미지를 더 이상 사용할 수 없습니다.",
+  "viewer.retry": "다시 시도",
+  "viewer.fit": "화면에 맞춤",
+  "viewer.native": "100%",
+  "viewer.fitShortcut": "화면에 맞춤 (0)",
+  "viewer.nativeShortcut": "100% (두 번 클릭 또는 탭)",
+  "viewer.previous": "이전 이미지 (왼쪽 화살표)",
+  "viewer.next": "다음 이미지 (오른쪽 화살표)",
+  "viewer.open": "{name} 이미지 열기",
   "confirm.deleteVm": "로컬 VM 삭제",
   "confirm.replaceVm": "로컬 VM 교체",
   "confirm.replaceVps": "VPS 컴퓨터 교체",

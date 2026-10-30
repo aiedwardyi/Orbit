@@ -65,6 +65,7 @@ import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { KeepGoingMark, keepGoingMarkState } from "./KeepGoingMark";
 import { ShownImage } from "./AttachmentPreview";
+import { MediaViewerProvider } from "./MediaViewerProvider";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
@@ -1411,6 +1412,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const keepGoingLabel = keepGoing ? t(keepGoing === "on" ? "bot.keepGoingOnMark" : "bot.keepGoingPausedMark") : undefined;
 
   return (
+    <MediaViewerProvider threadId={bot.threadId} messages={shown}>
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       {/* Call mode covers the thread while the bot is on the line */}
       <CallOverlay bot={bot} />
@@ -1860,5 +1862,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       </div>
 
     </main>
+    </MediaViewerProvider>
   );
 }

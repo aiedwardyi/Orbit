@@ -1,5 +1,68 @@
 @import "tailwindcss";
 
+[data-media-viewer] header {
+  padding-top: env(safe-area-inset-top, 0px);
+  min-height: calc(56px + env(safe-area-inset-top, 0px));
+}
+
+.media-viewer-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 65%);
+}
+
+.media-viewer-button:hover {
+  background: rgb(38 38 38 / 90%);
+}
+
+[data-media-viewer] :focus-visible {
+  outline: 2px solid white;
+  outline-offset: -2px;
+}
+
+.media-viewer-zoom {
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+[data-viewer-controls] {
+  transition: opacity 150ms;
+}
+
+[data-controls="hidden"] [data-viewer-controls]:not(:focus-within) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-image-stage][data-fit="false"] {
+  cursor: grab;
+}
+
+[data-image-stage][data-fit="false"]:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  [data-viewer-previous],
+  [data-viewer-next] {
+    display: none;
+  }
+
+  [data-controls="hidden"] header[data-viewer-controls]:not(:focus-within) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-viewer-controls] {
+    transition: none;
+  }
+}
+
 @font-face {
   font-family: "Symbols Nerd Font Mono";
   src: url("/fonts/SymbolsNerdFontMono-Regular.woff2") format("woff2");

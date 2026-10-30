@@ -305,6 +305,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (document.querySelector("[data-media-viewer]")) return;
       event.preventDefault();
       event.stopPropagation();
       byEscape = true;
