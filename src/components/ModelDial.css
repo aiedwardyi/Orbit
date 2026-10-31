@@ -292,37 +292,38 @@
 .model-cross-header .model-dial-view:hover { color: #f2f3f5; }
 
 /* Phone: dial on top facing down, cards as a drum below it. */
-.dial-stage[data-phone] { --face: 90deg; --cx: 195px; --cy: 216px; --cw: 300px; --ch: 56px; width: 390px; height: 844px; touch-action: none; }
+.dial-stage[data-phone] { --face: 90deg; --top: env(safe-area-inset-top, 0px); --gap: max(0px, (var(--ph) - 800px - var(--top) - env(safe-area-inset-bottom, 0px)) / 3); --cx: 50%; --cy: calc(238px + var(--top) + var(--gap)); --cw: calc(var(--pw) - 32px); --ch: 58px; width: var(--pw); height: var(--ph); touch-action: none; }
 .dial-stage[data-phone] :is(.dial-top p, .dial-orbits, .dial-link, .dial-rail, .dial-keys, .dial-src, .dial-cta kbd) { display: none; }
-.dial-stage[data-phone] .dial-top { left: 16px; top: 16px; width: 358px; }
+.dial-stage[data-phone] .dial-top { left: 16px; top: calc(16px + var(--top)); width: calc(var(--pw) - 32px); }
 .dial-stage[data-phone] .dial-top h2 { font-size: 22px; }
 .dial-stage[data-phone] .dial-pill { margin-top: 8px; padding: 4px 8px; font-size: 9.5px; }
-.dial-stage[data-phone] .dial-face { transform: scale(.5); }
+.dial-stage[data-phone] .dial-face { transform: scale(.625); }
 .dial-stage[data-phone] .dial-seg { left: 222px; top: 222px; width: 36px; height: 36px; }
 .dial-stage[data-phone] .dial-seg .dial-mark { width: 30px; height: 30px; }
 .dial-stage[data-phone] .dial-effort { left: 90px; top: 324px; width: 300px; height: 56px; gap: 6px; font-size: 15px; }
 .dial-stage[data-phone] .dial-effort b { font-size: 30px; }
 .dial-stage[data-phone] .dial-scene-lab { background:
-  radial-gradient(200px 200px at var(--cx) var(--cy), color-mix(in srgb, var(--c) 20%, transparent), transparent 70%),
-  radial-gradient(260px 120px at 50% 440px, color-mix(in srgb, var(--c) 9%, transparent), transparent 70%); }
+  radial-gradient(250px 250px at var(--cx) var(--cy), color-mix(in srgb, var(--c) 20%, transparent), transparent 70%),
+  radial-gradient(320px 130px at 50% calc(489px + var(--top) + 2 * var(--gap)), color-mix(in srgb, var(--c) 9%, transparent), transparent 70%); }
 .dial-stage[data-phone] .dial-wheel { mask-image: none; }
-.dial-stage[data-phone] .dial-plane { left: 45px; top: 440px; }
-.dial-stage[data-phone] .dial-card { transform-origin: 50% 50%; transform: translateY(calc(var(--k) * 62px)) scale(calc(1 - var(--ak) * .06)); padding: 0 12px 0 14px; gap: 12px; }
+.dial-stage[data-phone] .dial-plane { left: 16px; top: calc(489px + var(--top) + 2 * var(--gap)); }
+.dial-stage[data-phone] .dial-card { transform-origin: 50% 50%; transform: translateY(calc(var(--k) * 66px)) scale(calc(1 - var(--ak) * .06)); padding: 0 14px 0 16px; gap: 14px; }
 .dial-stage[data-phone] .dial-plane[data-open] .dial-card { opacity: calc(var(--o) * (1 - clamp(0, var(--k), 1))); }
 .dial-stage[data-phone] .dial-bar { left: 0; font-size: 12px; }
-.dial-stage[data-phone] .dial-card-name { font-size: 17px; }
+.dial-stage[data-phone] .dial-card-name { font-size: 19px; }
+.dial-stage[data-phone] .dial-card-line { font-size: 12px; }
 .dial-stage[data-phone] .dial-frame { left: -6px; top: calc(var(--ch) / -2 - 6px); width: calc(var(--cw) + 12px); height: calc(var(--ch) + 12px); border-radius: 18px; }
-.dial-stage[data-phone] .dial-stats { left: 16px; right: 16px; top: 556px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 0; align-items: start; }
+.dial-stage[data-phone] .dial-stats { left: 16px; right: 16px; top: auto; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 0; align-items: start; }
 .dial-stage[data-phone] .dial-stat { flex-direction: column-reverse; align-items: center; gap: 6px; }
 .dial-stage[data-phone] .dial-stat-text { align-items: center; text-align: center; }
-.dial-stage[data-phone] .dial-cta { grid-column: 1 / -1; grid-row: 2; justify-content: center; height: 48px; }
-.dial-stage[data-phone] .dial-ring { --w: 4px; width: 56px; height: 56px; }
-.dial-stage[data-phone] .dial-ring .cap { transform-origin: 50% 28px; }
-.dial-stage[data-phone] .dial-ring .num { font-size: 15px; }
-.dial-stage[data-phone] .dial-big { display: flex; height: 56px; align-items: center; justify-content: center; align-self: center; font-size: 24px; }
-.dial-stage[data-phone] .dial-big .unit { margin-left: 4px; font-size: 12px; }
-.dial-stage[data-phone] .dial-label { font-size: 9.5px; }
-.dial-stage[data-phone] .dial-footer { left: 16px; right: 16px; bottom: 12px; height: 34px; font-size: 9.5px; letter-spacing: .12em; }
+.dial-stage[data-phone] .dial-cta { grid-column: 1 / -1; grid-row: 2; justify-content: center; height: 52px; }
+.dial-stage[data-phone] .dial-ring { --w: 5px; width: 66px; height: 66px; }
+.dial-stage[data-phone] .dial-ring .cap { transform-origin: 50% 33px; }
+.dial-stage[data-phone] .dial-ring .num { font-size: 18px; }
+.dial-stage[data-phone] .dial-big { display: flex; height: 66px; align-items: center; justify-content: center; align-self: center; font-size: 28px; }
+.dial-stage[data-phone] .dial-big .unit { margin-left: 4px; font-size: 13px; }
+.dial-stage[data-phone] .dial-label { font-size: 10.5px; }
+.dial-stage[data-phone] .dial-footer { left: 16px; right: 16px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); height: 34px; font-size: 9.5px; letter-spacing: .12em; }
 
 @media (prefers-reduced-motion: reduce) {
   .dial-stage *, .dial-stage *::before, .dial-stage *::after { transition: none !important; animation: none !important; }

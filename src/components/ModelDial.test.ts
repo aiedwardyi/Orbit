@@ -103,6 +103,7 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Element.prototype.animate = originalAnimate;
+  Reflect.deleteProperty(window.navigator, "vibrate");
 });
 
 describe("ModelDial", () => {
@@ -266,7 +267,7 @@ describe("ModelDial", () => {
       await drag(0, -120, 4, 10);
       await settle();
       const landed = order.indexOf(selected()!);
-      expect(landed).toBeGreaterThan(2);
+      expect(Number(document.querySelector<HTMLElement>(".dial-stage")!.style.getPropertyValue("--turn"))).toBeGreaterThan(2);
       expect(document.querySelectorAll('.dial-card[aria-pressed="true"]')).toHaveLength(1);
       await settle();
       expect(order.indexOf(selected()!)).toBe(landed);
@@ -325,6 +326,44 @@ describe("ModelDial", () => {
       expect(swipe).not.toHaveBeenCalled();
       document.removeEventListener("touchstart", swipe);
       document.removeEventListener("touchmove", swipe);
+    });
+
+    it("ticks once per model or effort step, never on open or a clamped step", async () => {
+      const vibrate = vi.fn(() => true);
+      Object.defineProperty(window.navigator, "vibrate", { configurable: true, value: vibrate });
+      media({ phone: true });
+      await mount();
+      await settle();
+      expect(vibrate).not.toHaveBeenCalled();
+      await act(async () => document.querySelector<HTMLButtonElement>('.dial-card[data-model-cell="claude-sonnet-5-5"]')!.click());
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      await drag(0, 60, 4, 60);
+      await settle();
+      expect(selected()).toBe("claude-opus-5-5");
+      expect(vibrate).toHaveBeenCalledTimes(2);
+      await drag(200, 0);
+      await drag(200, 0);
+      expect(effort()).toBe("max");
+      expect(vibrate).toHaveBeenCalledTimes(4);
+      await drag(200, 0);
+      expect(vibrate).toHaveBeenCalledTimes(4);
+      expect(vibrate).toHaveBeenLastCalledWith(10);
+    });
+
+    it("stays still under reduced motion and where vibrate is missing", async () => {
+      const vibrate = vi.fn(() => true);
+      Object.defineProperty(window.navigator, "vibrate", { configurable: true, value: vibrate });
+      media({ phone: true, reduced: true });
+      await mount();
+      await drag(200, 0);
+      expect(effort()).toBe("Extra high");
+      expect(vibrate).not.toHaveBeenCalled();
+      Reflect.deleteProperty(window.navigator, "vibrate");
+      await act(async () => root.unmount());
+      media({ phone: true });
+      await mount();
+      await drag(200, 0);
+      expect(effort()).toBe("Extra high");
     });
 
     it("snaps without coasting under reduced motion", async () => {
