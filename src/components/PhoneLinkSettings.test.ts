@@ -111,6 +111,18 @@ describe("Phone setup steps", () => {
     expect(document.getElementById(relay.getAttribute("aria-controls")!)?.hidden).toBe(false);
   });
 
+  it("hides the relay link on a remote device, where relay setup is refused", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path === "/api/phone-relay/status") throw new Error("manage phone access on this PC");
+      return { url, setup: { state: "ready" } };
+    });
+    root = createRoot(host);
+    await act(async () => root!.render(createElement(I18nProvider, null, createElement(PhoneLinkSettings))));
+    expect(host.querySelector("[data-phone-link-qr] svg")).not.toBeNull();
+    expect(button("Have a relay setup code?")).toBeUndefined();
+    expect(document.getElementById("phone-relay-settings")).toBeNull();
+  });
+
   it.each([[false, "smooth"], [true, "auto"]])("scrolls the opened relay form into view and focuses its field (reduced motion %s)", async (reduce, behavior) => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: reduce && query.includes("reduce") }));
     const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
@@ -155,14 +167,14 @@ describe("Phone setup steps", () => {
 
   it("does not overlap slow requests and ignores a result after unmount", async () => {
     let finish!: (body: object) => void;
-    store.api.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    store.api.mockImplementation((path: string) => path === "/api/remote-link" ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve({}));
     root = createRoot(host);
     await act(async () => root!.render(createElement(I18nProvider, null, createElement(PhoneLinkSettings))));
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await vi.advanceTimersByTimeAsync(30_000);
     });
-    expect(store.api).toHaveBeenCalledTimes(1);
+    expect(store.api.mock.calls.filter(([path]) => path === "/api/remote-link")).toHaveLength(1);
     await act(async () => root!.unmount());
     root = undefined;
     await act(async () => finish({ url, setup: { state: "ready" } }));

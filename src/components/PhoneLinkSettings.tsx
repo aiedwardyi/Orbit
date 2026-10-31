@@ -32,6 +32,7 @@ export function PhoneLinkSettings() {
   const [status, setStatus] = useState<RemotePhoneLink | null>(null);
   const [copied, setCopied] = useState(false);
   const [relayOpen, setRelayOpen] = useState(false);
+  const [relayManaged, setRelayManaged] = useState(false);
   const copiedTimer = useRef<number | undefined>(undefined);
   const relayBox = useRef<HTMLDivElement>(null);
 
@@ -60,6 +61,15 @@ export function PhoneLinkSettings() {
       window.clearTimeout(copiedTimer.current);
       window.removeEventListener("focus", load);
       document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
+
+  // Relay setup is PC-only: a device window viewing this PC is refused, so it gets no link.
+  useEffect(() => {
+    let live = true;
+    api("/api/phone-relay/status").then(() => live && setRelayManaged(true), () => {});
+    return () => {
+      live = false;
     };
   }, []);
 
@@ -147,10 +157,12 @@ export function PhoneLinkSettings() {
           </div>
         </li>
       </ol>
-      <button type="button" aria-expanded={relayOpen} aria-controls="phone-relay-settings" onClick={() => setRelayOpen((open) => !open)} className="mt-5 text-[12px] text-ink-secondary underline hover:text-ink">
-        {t("settings.phone.relay")}
-      </button>
-      <div ref={relayBox} id="phone-relay-settings" hidden={!relayOpen} className="mt-4 border-t border-hairline/40 pt-4">{relayOpen && <PhoneAccessSettings />}</div>
+      {relayManaged && <>
+        <button type="button" aria-expanded={relayOpen} aria-controls="phone-relay-settings" onClick={() => setRelayOpen((open) => !open)} className="mt-5 text-[12px] text-ink-secondary underline hover:text-ink">
+          {t("settings.phone.relay")}
+        </button>
+        <div ref={relayBox} id="phone-relay-settings" hidden={!relayOpen} className="mt-4 border-t border-hairline/40 pt-4">{relayOpen && <PhoneAccessSettings />}</div>
+      </>}
     </div>
   );
 }
