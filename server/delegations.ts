@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { peerMessagePrompt } from "./chief-of-staff.ts";
+import { claimDelegationWake } from "./comms-budget.ts";
 import {
   commLink,
   getOrCreateChannel,
@@ -32,6 +33,7 @@ import {
 } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
+import { asksSender } from "./delegate-askback.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
 import { askSwitchedText } from "./peer-takeover.ts";
 import { redactSecretsInText } from "./redact.ts";
@@ -848,7 +850,14 @@ export function finishDelegatedTurn(
     );
   }
   const sender = turn.sourceBotId ? bus.store.bot(turn.sourceBotId) : undefined;
-  if (ok && !pointer && sender && turn.sourceThreadId) postPeerReply(bus, sender, target, reply, channel, turn.sourceThreadId);
+  if (ok && !pointer && sender && turn.sourceThreadId) {
+    const wake = Boolean(running && !turn.ask && bus.wakeSender
+      && bus.store.taskByThread(sender.id, turn.sourceThreadId) && !bus.store.groupByThread(turn.sourceThreadId)
+      && channel && asksSender(reply, sender.name) && claimDelegationWake(turn.sourceThreadId));
+    if (postPeerReply(bus, sender, target, reply, channel, turn.sourceThreadId, wake) && wake) {
+      bus.wakeSender!(sender.id, turn.sourceThreadId);
+    }
+  }
   if (!channel) return reported;
   if (pointer) mirrorActivity(bus, target, channel, pointer, true, ownChat(target));
   else if (ok && reply.trim()) mirrorReply(bus, target, reply, channel);

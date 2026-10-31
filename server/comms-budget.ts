@@ -10,6 +10,19 @@
 export const MAX_ASKS_PER_TURN = 4;
 
 const asksThisTurn = new Map<string, number>();
+// Automatic wake turns share this budget until the user starts another turn.
+const delegationWakes = new Map<string, number>();
+
+export function claimDelegationWake(sourceThreadId: string): boolean {
+  const used = delegationWakes.get(sourceThreadId) ?? 0;
+  if (used >= MAX_ASKS_PER_TURN) return false;
+  delegationWakes.set(sourceThreadId, used + 1);
+  return true;
+}
+
+export function clearDelegationWakeBudget(sourceThreadId: string): void {
+  delegationWakes.delete(sourceThreadId);
+}
 
 /** Take one of this turn's asks. False once the turn has spent them all. */
 export function claimAsk(sourceThreadId: string): boolean {

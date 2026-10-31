@@ -134,7 +134,7 @@ import {
 import { BUSY_RESUME_DELAYS_MS, retryLine } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
-import { clearAskBudget } from "./comms-budget.ts";
+import { clearAskBudget, clearDelegationWakeBudget } from "./comms-budget.ts";
 import "./comms-visibility.ts";
 import type { CommsBus } from "./comms-visibility.ts";
 import "./message-db.ts";
@@ -4474,6 +4474,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // (askBotAndWait) never clears a live wait that is not being replaced.
   markChatLatency({ sendId: latencySendId, threadId }, "turn.dispatch");
   broadcast({ kind: "turn.dispatch", threadId, createdAt: new Date().toISOString() });
+  if (turnStartedByUser(opts)) clearDelegationWakeBudget(threadId);
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
   // never from a peer's opening line
@@ -5950,7 +5951,7 @@ function enqueueDrainedRoomTurn(
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
 // they can mirror messages + chips without re-deriving SSE plumbing. Same
 // shape every comms entry point uses (ask_bot, delegate_bot).
-const commsBus: CommsBus = { store, broadcast };
+const commsBus: CommsBus = { store, broadcast, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId) };
 
 // approval bus: peer-approval.ts only needs to push cards and broadcast
 // them — its pending map lives in the module so the two respond endpoints
