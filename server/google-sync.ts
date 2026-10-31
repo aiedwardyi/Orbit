@@ -161,6 +161,8 @@ export function createGoogleSync(options: Options) {
   let soon = false;
   let stopped = false;
   let chatFirst = true;
+  // Peer files the open-or-wake catch-up still lacks; null until its first listing.
+  let behind: ReadonlySet<string> | null = null;
 
   const mirrorPath = () => {
     const path = join(dataDir, GOOGLE_MIRROR_DIR);
@@ -294,7 +296,10 @@ export function createGoogleSync(options: Options) {
     timer = setTimeout(() => {
       timer = undefined;
       soon = false;
-      if (lateTick(due, ms, now())) chatFirst = true;
+      if (lateTick(due, ms, now())) {
+        chatFirst = true;
+        behind = null;
+      }
       void kick();
     }, ms);
     timer.unref?.();
@@ -370,6 +375,7 @@ export function createGoogleSync(options: Options) {
       summary = await createDriveMirror({
         owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ids, client, now, uploads, hashes, chatFirst,
         openThread: chatFirst ? options.openThread?.() : null,
+        behind: (paths) => { behind = paths; },
         listed: (files) => {
           listed = true;
           syncHold.feed(bound.mirrorPath, runnable() ? files : null, ids);
@@ -464,6 +470,8 @@ export function createGoogleSync(options: Options) {
     return { status: 200, body: status() };
   }
 
+  const catchUp = () => chatFirst && binding.kind === "ok" && binding.binding.phase === "ready" && runnable() !== null;
+
   const unsubscribe = account.onSession(() => {
     syncHold.google(mirrorPath());
     catching = runnable() !== null;
@@ -480,6 +488,8 @@ export function createGoogleSync(options: Options) {
     kick,
     /** Settles once no pass is running or due right away. */
     idle: async () => { while (running || soon) await (running ?? new Promise((done) => setTimeout(done, 1))); },
+    /** False while this PC's copy of that PC's presence record may be stale. */
+    deviceKnown: (deviceId: string) => !catchUp() || (behind !== null && !behind.has(`devices/${deviceId}.json`)),
     held: (botId: string) => binding.kind === "ok" && binding.binding.heldBots.includes(botId),
     /** A bound, ready PC whose engines lost the mirror folder, or never republished into it, points them back at it. */
     resume(): void {
@@ -487,6 +497,7 @@ export function createGoogleSync(options: Options) {
       if (bound?.phase === "ready" && !lost() && !folderMode() && (!options.folder() || !existsSync(republishedPath))) activate(bound.mirrorPath);
       catching = runnable() !== null;
       chatFirst = true;
+      behind = null;
       void kick();
     },
     stop(): void {

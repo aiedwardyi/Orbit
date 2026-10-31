@@ -56,7 +56,7 @@ export interface DriveMirrorSummary {
 
 /** Local md5s by path, trusted while size and mtime hold; outlives one mirror so later passes skip rehashing. */
 export type DriveHashes = Map<string, { size: bigint; mtimeNs: bigint; md5: string }>;
-type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes; chatFirst?: boolean; openThread?: string | null; downloaded?: (path: string) => void; listed?: (files: ReadonlyMap<string, readonly DriveFile[]> | null) => void };
+type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes; chatFirst?: boolean; openThread?: string | null; downloaded?: (path: string) => void; behind?: (paths: ReadonlySet<string>) => void; listed?: (files: ReadonlyMap<string, readonly DriveFile[]> | null) => void };
 const passes = new Set<string>();
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 const md5 = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -621,12 +621,22 @@ export function createDriveMirror(options: Options) {
         } else if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       }
     }
+    const behind = new Set([...paths].filter((path) => {
+      const rule = drivePathRule(path, ids);
+      const copies = remote.get(path);
+      return (rule === "peer" || rule === "once") && !!copies?.length && !copies.some((copy) => copy.md5Checksum === table!.files[path]?.md5);
+    }));
+    options.behind?.(behind);
+    const landed = (path: string) => {
+      if (behind.delete(path)) options.behind?.(behind);
+    };
     let stopped = false;
     async function one(path: string): Promise<void> {
       await breathe();
-      if (!needsWork(path)) { summary.skipped.push(path); return; }
+      if (!needsWork(path)) { summary.skipped.push(path); landed(path); return; }
       try {
         await syncPath(path);
+        landed(path);
       } catch (error) {
         check();
         if (error instanceof DriveClientError && error.rateLimited) {

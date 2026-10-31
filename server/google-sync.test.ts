@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { writeDeviceRecord } from "./device-sync.ts";
+import { listDevices, writeDeviceRecord } from "./device-sync.ts";
 import { decodeDrivePath } from "./drive-mirror.ts";
 import { GoogleAccount, type GoogleSession } from "./google-account.ts";
 import { GOOGLE_BINDING_FILE, GOOGLE_TABLE_FILE, createGoogleSync, googleSyncRoute, readGoogleBinding, type GoogleSync } from "./google-sync.ts";
@@ -310,6 +310,37 @@ describe("Google sync journeys", { timeout: 60_000 }, () => {
       driveA().fetch = fetchDrive;
       timers.mockRestore();
     }
+  });
+
+  it("keeps a PC online while a day-stale mirror catches up, and an off PC offline", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    const work = makePC("work");
+    const laptop = makePC("laptop");
+    for (const pc of [home, work, laptop]) await startOn(pc);
+    laptop.sync.stop();
+    const day = 1_800_000_000_000 + 24 * 3_600_000;
+    writeDeviceRecord(home.folder!, { deviceId: home.deviceId, name: home.name, host: "home.example.ts.net", chatSync: 2 }, day);
+    await settle(home);
+
+    let reached!: () => void;
+    const reaching = new Promise<void>((done) => { reached = done; });
+    let release!: () => void;
+    const held = new Promise<void>((done) => { release = done; });
+    driveA().onDownload = (file) => {
+      if (decodeDrivePath(file.name) !== `devices/${home.deviceId}.json`) return;
+      reached();
+      return held;
+    };
+    laptop.sync = boot(laptop);
+    const offline = () => Object.fromEntries(listDevices(laptop.folder!, laptop.deviceId, day + 60_000, undefined, laptop.sync.deviceKnown).map((item) => [item.deviceId, item.offline]));
+    expect(offline()).toMatchObject({ [home.deviceId]: false, [work.deviceId]: false });
+    laptop.sync.resume();
+    await reaching;
+    expect(offline()).toMatchObject({ [home.deviceId]: false, [work.deviceId]: true });
+    release();
+    await laptop.sync.idle();
+    expect(offline()).toMatchObject({ [home.deviceId]: false, [work.deviceId]: true });
+    expect(laptop.sync.status().state).toBe("up-to-date");
   });
 
   it("publishes an unused bot on the first PC of an account", async () => {

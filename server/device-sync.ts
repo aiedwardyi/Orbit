@@ -80,8 +80,8 @@ export function deviceDisplayName(saved: string | null, envName: string | undefi
   return saved || envName?.trim() || hostname;
 }
 
-/** Valid records by name; corrupt files are skipped. */
-export function listDevices(folder: string, currentId: string, now: number, limit = MAX_DEVICE_FILES): DeviceListItem[] {
+/** Valid records by name; corrupt files are skipped. A record `known` rejects may be stale, so it never reads as offline. */
+export function listDevices(folder: string, currentId: string, now: number, limit = MAX_DEVICE_FILES, known: (deviceId: string) => boolean = () => true): DeviceListItem[] {
   const directory = join(folder, DEVICE_DIR);
   let names: string[];
   try {
@@ -94,7 +94,7 @@ export function listDevices(folder: string, currentId: string, now: number, limi
     try {
       const parsed = deviceSchema.safeParse(JSON.parse(readFileSync(join(directory, basename(name)), "utf8")));
       if (!parsed.success) continue;
-      items.push({ ...parsed.data, current: parsed.data.deviceId === currentId, offline: now - parsed.data.lastSeen > DEVICE_STALE_MS });
+      items.push({ ...parsed.data, current: parsed.data.deviceId === currentId, offline: now - parsed.data.lastSeen > DEVICE_STALE_MS && known(parsed.data.deviceId) });
     } catch {}
   }
   return items.sort((a, b) => a.name.localeCompare(b.name));

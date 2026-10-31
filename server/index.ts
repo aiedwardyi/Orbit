@@ -7497,7 +7497,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // ── device picker: PCs in the sync folder ──
     if (method === "GET" && path === "/api/devices") {
       const folder = profileSyncSettings.folder;
-      const listed = folder ? listDevices(folder, profileSyncSettings.deviceId, Date.now()) : [];
+      const listed = folder ? listDevices(folder, profileSyncSettings.deviceId, Date.now(), undefined, googleSync.deviceKnown) : [];
       const devices = pickerDevices(listed, relay ? phoneAccess.base() : null);
       return json(res, 200, { devices });
     }
