@@ -58,12 +58,11 @@ The exact shape of its final message, plus one line: cleanup, removed / kept and
 - If their branches must work together, end with one INTEGRATE card: merge the
   named branches in a scratch worktree, run the checks, report like a worker.
 - Evidence files: the worker regenerates them at the final sha and stamps the
-  sha in each file. An earlier draft can contradict the report.
+  sha in each file.
 
 ## Token budget
 
-Every step re-reads the worker's whole context, so a worker gets more
-expensive the longer it runs.
+Every step re-reads the worker's whole context, so long runs cost more.
 
 - Size each card so its worker finishes under about 200k tokens of context.
   Split research or probes and the build into separate cards.
@@ -82,6 +81,9 @@ expensive the longer it runs.
 - Save Gemini 4 Argon for big jobs that gain from a second model family's view,
   like a whole-codebase audit or 3D and graphic design. Routine work goes to the
   other engines.
+- Coding fallback as engines run low: Opus 5.5, GPT-6.1 Sol, Sonnet 5.5,
+  GPT-6.1 Terra, then Grok 4.7 extra high or GPT-6 Luna max. Grok also suits
+  writing, X news.
 
 ## Audit cards
 
@@ -135,7 +137,6 @@ Record paths in the card's progress file.
   bot or the user made. When unsure, ask.
 - Never remove a shared install that other worktrees link to, even one you
   made: check junction targets first.
-- Workers report what they removed and what they kept.
 
 ## Verify before push
 
@@ -216,8 +217,7 @@ always say "X% left".
 
 ## Panes
 
-- Close a worker's pane with terminal_close once its result is verified; the
-  pane list should show only live work.
+- Close a worker's pane with terminal_close once its result is verified.
 - After landing, remove the worker's worktree with the Clean up recipe, in the
   same step that closes its pane.
 - Keep at most a few live panes; terminal_spawn lists the hard caps.
