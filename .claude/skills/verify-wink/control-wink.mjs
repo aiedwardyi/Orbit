@@ -7,6 +7,8 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readSeedProfile } from "./seed-profile.mjs";
+
 const require = createRequire(import.meta.url);
 require("./hidden.cjs");
 
@@ -20,6 +22,7 @@ const SCRATCH = ["state.json", "browser-chromium.json", "browser-webkit.json", "
 const ENGINES = { claude: "claudeAgent", codex: "codex", grok: "grokAgent", antigravity: "antigravityAgent", muse: "museAgent" };
 const BOTS = { Atlas: "claude", Juno: "codex", Orion: "grok", Vega: "antigravity", Lyra: "muse" };
 const PHRASES = ["check the build log", "summarize the last run", "what changed in the sidebar", "draft a reply to the review", "list the open questions", "plan the next step", "compare desktop and phone", "note the flaky test"];
+const IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAKAAAABkCAIAAACO1KzYAAAAwUlEQVR42u3cMQ0AMAgAQbR0qgx8YKH+19ZDN8glr4BbgVg7NbgwAsACLMACLMACLMCABViABViABViAAQuwAAuwAAuwAAswYHUHrnM1OMCABViABViABViAAQuwAAuwAAuwAAMWYAEWYAEWYAEWYMBqD2z33+mKAAuwAAuwAAswYAEWYAEWYAEWYMACLMACLMACLMACDFiA5eO7nK4IsAALMGABFmABFmABFmDAAizAAizAAizAAgxYgAVYgAVYnz2gdkg5DMIO4AAAAABJRU5ErkJggg==";
 const NAV = 'aside[aria-label="Bots and navigation"]';
 const BUSY = "[data-orbit-composer-stop], [data-turn-mascot]";
 const SYSTEM_VARS = ["SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT", "OS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "NUMBER_OF_PROCESSORS", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432", "ALLUSERSPROFILE", "PUBLIC", "COMPUTERNAME", "USERNAME", "USERDOMAIN"];
@@ -29,6 +32,7 @@ const HELP = `node control-wink.mjs <command> [args] [--page <name>] [--timeout 
   launch [--checkout <path>]                     build a checkout's UI + server into scratch, start it on 8970-8979
   doctor                                         read-only: our PIDs, port owner, build sha, data dir, stubs, spawns
   seed [--long <n>]                              5 bots on 5 engines + an n-message chat on Atlas (default 320), via the API
+  seed --from-profile [<dir>]                    bots and rooms shaped like a profile (default ~/.orbit), stub chats; read-only on it
   open desktop|phone [--engine webkit] [--name <page>]   desktop 1440x900; phone 390x844 touch DPR 3
   pages                                          list open pages
   click <selector>                               click (tap on phone pages)
@@ -304,8 +308,9 @@ async function gotoApp(page, state) {
   await page.locator(NAV).waitFor({ state: "attached", timeout: 30_000 });
   await page.locator("[data-sidebar-footer]").waitFor({ state: "attached", timeout: TIMEOUT });
   const { bots } = await api(state, "GET", "/api/bots?messages=0");
-  await page.waitForFunction((count) => document.querySelectorAll('[data-sidebar-row-kind="bot"]').length === count, bots.length, { timeout: 15_000 });
-  return bots.length;
+  const shown = bots.filter((bot) => !bot.hidden).length;
+  await page.waitForFunction((count) => document.querySelectorAll('[data-sidebar-row-kind="bot"]').length === count, shown, { timeout: 15_000 });
+  return shown;
 }
 
 async function withPage(run) {
@@ -611,6 +616,7 @@ async function sheet() {
 
 async function seed() {
   const state = loadState();
+  if (flags["from-profile"]) return seedFromProfile(state);
   const total = Number(flags.long ?? 320);
   const { instances } = await api(state, "GET", "/api/instances");
   let { bots } = await api(state, "GET", "/api/bots?messages=0");
@@ -647,6 +653,74 @@ async function seed() {
     count += 2;
   }
   say(`chat Atlas: ${count} messages${Date.now() - started > 1000 ? ` (${secs(started)}s)` : ""}`);
+}
+
+async function upload(state, bytes, mime) {
+  const response = await fetch(`${state.url}/api/attachments`, { method: "POST", headers: { Authorization: `Bearer ${state.token}`, "Content-Type": mime }, body: bytes });
+  if (!response.ok) throw new Error(`POST /api/attachments: ${response.status} ${(await response.text()).slice(0, 160)}`);
+  return response.json();
+}
+
+async function converse(state, threadId, path, text, idle) {
+  const last = async () => (await api(state, "GET", `/api/threads/${threadId}/messages?limit=2`)).messages;
+  const before = (await last()).at(-1)?.id;
+  await api(state, "POST", path, { text });
+  let pair;
+  await until(async () => {
+    pair = await last();
+    return pair.at(-1)?.id !== before && pair.at(-1)?.role === "bot" && (await idle());
+  }, 30_000, `a reply in ${threadId}`);
+  return pair;
+}
+
+async function seedFromProfile(state) {
+  const started = Date.now();
+  const dir = resolve(flags["from-profile"] === true ? join(homedir(), ".orbit") : flags["from-profile"]);
+  const profile = readSeedProfile(dir);
+  const { instances } = await api(state, "GET", "/api/instances");
+  const existing = (await api(state, "GET", "/api/bots?messages=0")).bots;
+  if (existing.length) throw new Error(`${existing.length} bots already here: seed --from-profile needs a fresh launch`);
+  const ids = [];
+  for (const bot of profile.bots) {
+    const instanceId = ENGINES[bot.instanceId] ? bot.instanceId : "claude";
+    const { models } = instances.find((entry) => entry.instanceId === instanceId);
+    const model = models.options.some((option) => option.id === bot.model) ? bot.model : models.default || models.options[0]?.id;
+    const { bot: created } = await api(state, "POST", "/api/bots", { name: bot.name, title: `${instanceId} stub`, section: bot.section, color: bot.color, mascotStyle: bot.mascotStyle, modelSelection: { mode: bot.mode, instanceId, model } });
+    const patch = { pinned: bot.pinned, ...(bot.chiefOfStaff && { chiefOfStaff: true }), ...(bot.hidden && { hidden: true }) };
+    if (bot.avatar) patch.avatarUrl = `/api/attachments/${basename((await upload(state, readFileSync(bot.avatar.file), bot.avatar.mime)).path)}`;
+    if (bot.avatar && bot.avatarCrop) patch.avatarCrop = bot.avatarCrop;
+    await api(state, "PATCH", `/api/bots/${created.id}`, patch);
+    ids.push(created.id);
+  }
+  await api(state, "PUT", "/api/bots/order", { botIds: ids });
+  const rooms = [];
+  for (const group of profile.groups) {
+    const defaultResponder = typeof group.responder === "number" ? { kind: "member", botId: ids[group.responder] } : { kind: group.responder };
+    rooms.push((await api(state, "POST", "/api/groups", { name: group.name, memberIds: group.members.map((at) => ids[at]), section: group.section, setup: { bulletin: "", defaultResponder } })).group);
+  }
+  if (rooms.length) await api(state, "PUT", "/api/groups/order", { groupIds: rooms.map((room) => room.id) });
+  say(`profile ${dir}: ${ids.length} bots (${profile.bots.filter((bot) => bot.chiefOfStaff).length} chief, ${profile.bots.filter((bot) => bot.pinned).length} pinned, ${profile.bots.filter((bot) => bot.hidden).length} hidden, ${profile.bots.filter((bot) => bot.avatar).length} avatars), ${rooms.length} rooms`);
+
+  const image = (await upload(state, Buffer.from(IMAGE, "base64"), "image/png")).path;
+  const { bots } = await api(state, "GET", "/api/bots?messages=0");
+  const idle = (id) => async () => !(await api(state, "GET", "/api/bots?messages=0")).bots.find((entry) => entry.id === id)?.busy;
+  await Promise.all(bots.map(async (bot, at) => {
+    const phrase = PHRASES[at % PHRASES.length];
+    const [, reply] = await converse(state, bot.threadId, `/api/bots/${bot.id}/messages`, `${phrase}\n\n<attached-image path="${image}" />`, idle(bot.id));
+    await api(state, "POST", `/api/threads/${bot.threadId}/messages/${reply.id}/reactions`, { emoji: "👍", by: "user" });
+    const [asked] = await converse(state, bot.threadId, `/api/bots/${bot.id}/messages`, `${phrase} [code]`, idle(bot.id));
+    await api(state, "POST", `/api/threads/${bot.threadId}/messages/${asked.id}/reactions`, { emoji: "👀", by: bot.id });
+    await converse(state, bot.threadId, `/api/bots/${bot.id}/messages`, `${phrase} [two]`, idle(bot.id));
+  }));
+  const quiet = (id) => async () => {
+    const room = (await api(state, "GET", "/api/bots?messages=0")).groups.find((entry) => entry.id === id);
+    return !room?.working && !room?.busyBotId;
+  };
+  for (const room of rooms) {
+    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, "plan the next step", quiet(room.id));
+    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, "compare desktop and phone [two]", quiet(room.id));
+  }
+  say(`chats: ${bots.length} bots x 6 messages (image, reactions, code block, 2-line reply), ${rooms.length} rooms x 2 turns (${secs(started)}s)`);
 }
 
 function processTable() {
