@@ -19,6 +19,11 @@ import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it("keeps English effort chips short and Korean effort explicit", () => {
+  expect(translate("en", "model.effortChip", { level: "Medium" })).toBe("Medium");
+  expect(translate("ko", "model.effortChip", { level: "중간" })).toBe("추론 중간");
+});
+
 it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "notSignedIn", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "signOut", "notInstalled", "install"])("translates engine login %s", (name) => {
   const key = `engines.${name}` as MessageKey;
   expect(en[key]).toBeTruthy();

@@ -87,6 +87,37 @@
   --radius-xl: 0.75rem;
 }
 
+[data-orbit-message-body]:has(> [data-message-reactions]) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+[data-orbit-message="user"] [data-orbit-message-body]:has(> [data-message-reactions]) {
+  align-items: flex-end;
+}
+
+[data-orbit-message-body]:has(> [data-message-reactions]) > [data-orbit-message-content] {
+  padding-bottom: 0.875rem;
+}
+
+[data-orbit-message-body] > [data-message-reactions] {
+  position: relative;
+  inset: auto;
+  max-width: calc(100% - 1rem);
+  margin: -0.875rem 0.5rem 0;
+  translate: none;
+  justify-content: flex-start;
+}
+
+[data-orbit-message="user"] [data-message-reactions] {
+  justify-content: flex-end;
+}
+
+[data-room-transcript] [data-orbit-message-body]:has(> [data-message-reactions]) {
+  padding-bottom: 0;
+}
+
 /* Nested skin previews keep their own geometry. */
 @scope (:root[data-shape="boxy"]) to ([data-skin]) {
   [class*="rounded"], button, input, textarea, select {
@@ -1571,11 +1602,7 @@ html[lang="ko"] {
   }
 
   [data-room-transcript] [data-orbit-message-body]:has(> [data-message-reactions]) {
-    padding-bottom: 2.75rem;
-  }
-
-  [data-room-transcript] [data-message-reactions] {
-    bottom: 2.75rem;
+    padding-bottom: 2rem;
   }
 
   [data-room-transcript] [data-message-hover-actions] {

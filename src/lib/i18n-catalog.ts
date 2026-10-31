@@ -1452,7 +1452,7 @@ export const en = {
   "model.modelCount": "{count} models",
   "model.tier": "Model tier",
   "model.effort": "Effort",
-  "model.effortChip": "{level} effort",
+  "model.effortChip": "{level}",
   "model.switchEngine": "Switch engine",
   "model.automaticHelp": "{name}",
   "model.cliVersion": "Engine {version}",

@@ -383,8 +383,7 @@ const Bubble = memo(function Bubble({
       tabIndex={-1}
       {...menuProps}
     >
-      {/* padded so the docked action row below the bubble
-          keeps out of the timestamp and reaction chips that follow it */}
+      {/* Keep the action row below the reaction overhang. */}
       <div
         data-orbit-message-body
         data-strip={hasReactions || dockShown ? "" : undefined}
@@ -557,8 +556,7 @@ const Bubble = memo(function Bubble({
             threadId={threadId}
             message={message}
             members={members}
-            corner={user ? "left" : "right"}
-            className="static mt-1 max-w-full translate-y-0"
+            corner={user ? "right" : "left"}
           />
         )}
       </div>
