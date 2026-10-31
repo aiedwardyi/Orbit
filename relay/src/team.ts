@@ -82,7 +82,7 @@ export interface TeamStats {
   people: TeamPerson[];
 }
 
-async function readText(path: string): Promise<string> {
+export async function readText(path: string): Promise<string> {
   try {
     const handle = await open(path, "r");
     try {
@@ -98,7 +98,7 @@ async function readText(path: string): Promise<string> {
   }
 }
 
-async function writeAtomic(path: string, text: string): Promise<void> {
+export async function writeAtomic(path: string, text: string): Promise<void> {
   const tmp = `${path}.tmp`;
   const handle = await open(tmp, "w", 0o600);
   try {
@@ -140,6 +140,11 @@ function merge(spans: { start: number; end: number }[], gap: number): { start: n
 
 const overlap = (span: { start: number; end: number }, from: number, to: number) =>
   Math.max(0, Math.min(span.end, to) - Math.max(span.start, from));
+
+export interface TeamWho {
+  name: string;
+  person: string;
+}
 
 export class TeamLog {
   private spans: Span[] = [];
@@ -278,6 +283,11 @@ export class TeamLog {
     clearInterval(this.timer);
     await this.checkpoint();
     await this.writes;
+  }
+
+  /** PC name and Wink profile name for a label, as the Team page shows them. */
+  who(label: string): TeamWho {
+    return { name: this.names.get(label)?.trim() || label, person: this.whos.get(label)?.trim() ?? "" };
   }
 
   stats(tzOffsetMin: number): TeamStats {

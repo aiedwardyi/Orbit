@@ -29,6 +29,7 @@ import {
   sendAlert,
 } from "./net-util.ts";
 import { RevocationList } from "./revocation.ts";
+import { SnagStore } from "./snags.ts";
 import { TeamLog } from "./team.ts";
 
 /** ALPN ids served on relay.<base>, besides acme-tls/1. */
@@ -91,6 +92,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
 
   const teamOwnerEmail = opts.google ? opts.teamOwnerEmail?.toLowerCase() : undefined;
   const team = teamOwnerEmail ? await TeamLog.open(opts.dataDir, now, log) : undefined;
+  const snags = team ? await SnagStore.open(opts.dataDir, limits.snagsPerLabelPerDay, now, log) : undefined;
   const hub = new Hub({ limits, log, now, team });
   const revoked = new RevocationList(opts.revokedLabelsFile, log);
   await revoked.load();
@@ -114,6 +116,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
     operatorPrivateKey: opts.operatorPrivateKey,
     ticketTtlSec,
     now,
+    snags,
   };
 
   let serving: SecureContext | null = null;
@@ -142,6 +145,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
     signinOrigin: opts.google?.signinOrigin,
     team,
     teamOwnerEmail,
+    snags,
     limits,
     log,
     now,
@@ -364,6 +368,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       await hub.whenSplicesDone(limits.drainGraceMs);
       hub.destroySplices();
       await team?.close();
+      await snags?.close();
       api.closeAllConnections();
       for (const socket of sockets) socket.destroy();
       await listening;

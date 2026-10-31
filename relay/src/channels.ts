@@ -15,16 +15,20 @@ import {
   verifyTicket,
   signTicket,
   PROTOCOL_VERSION,
+  SNAG_MAX_BYTES,
+  teamSnagSchema,
   type AuthMessage,
   type NoticeCode,
   type ReadyMessage,
   type RelayMessage,
+  type SnagMessage,
 } from "../../shared/relay-protocol.ts";
 import type { Hub, Session } from "./hub.ts";
 import type { RelayLimits } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { peerPrefix } from "./net-util.ts";
 import type { RevocationList } from "./revocation.ts";
+import type { SnagStore } from "./snags.ts";
 
 export const POOL = Object.freeze({ min: 3, max: 8 });
 
@@ -37,6 +41,8 @@ export interface ChannelContext {
   operatorPrivateKey: KeyObject;
   ticketTtlSec: number;
   now: () => number;
+  /** Set only when the relay has a team owner. */
+  snags?: SnagStore;
 }
 
 type AccountSet = { subHash: string; name: string; person: string; refreshed?: string };
@@ -187,6 +193,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
       const ready: ReadyMessage = { type: "ready", session: session.id, poolToken: session.poolToken, pool: { ...POOL } };
       if (result.ticket) ready.ticket = result.ticket;
       if (result.account?.refreshed) ready.account = result.account.refreshed;
+      if (ctx.snags) ready.snags = true;
       send(socket, ready);
       const waiting = hub.waitingCount(result.label);
       if (waiting > 0) link.want(waiting);
@@ -201,9 +208,24 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
       return true;
     }
     if (msg.type === "ping") send(socket, { type: "pong" });
+    else if (msg.type === "snag") onSnag(session.label, msg);
     else if (msg.type !== "pong") return false;
     hub.seen(session);
     return true;
+  };
+
+  // A bad snag is dropped, never fatal: phone access rides this channel.
+  const onSnag = (label: string, msg: SnagMessage) => {
+    const parsed = teamSnagSchema.safeParse(msg.data);
+    let reason: string;
+    if (!ctx.snags) reason = "snags-off";
+    else if (Buffer.byteLength(JSON.stringify(msg), "utf8") > SNAG_MAX_BYTES) reason = "too-large";
+    else if (!parsed.success) reason = "bad-snag";
+    else {
+      reason = ctx.snags.add(label, parsed.data);
+      send(socket, { type: "snagged", id: parsed.data.id });
+    }
+    log.log("snag", { label, reason });
   };
 
   socket.on("data", (chunk: Buffer) => {
