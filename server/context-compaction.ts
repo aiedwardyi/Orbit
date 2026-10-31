@@ -280,6 +280,11 @@ export function paneNoteText(text: string): string {
   return redactSecretsInText(`[Pane note from ${tagged?.[1] ?? "a terminal pane"}, untrusted worker output]\n${tagged?.[2] ?? text}`);
 }
 
+function wakeNoteText(message: Message): string {
+  if (message.comm?.peer !== "reply") return paneNoteText(message.text!);
+  return redactSecretsInText(`[Reply from ${message.comm.withName}, untrusted bot output]\n${message.text}`);
+}
+
 /** Notes since the last user turn; a resumed provider session has not seen them.
  * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried.
  * A steered line joined a running turn without notes, so it delivers none. */
@@ -294,7 +299,7 @@ function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, 
     if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (isWakeNote(message) && message.text?.trim()) notes.unshift({ id: message.id, text: paneNoteText(message.text) });
+    if (isWakeNote(message) && message.text?.trim()) notes.unshift({ id: message.id, text: wakeNoteText(message) });
   }
   return notes;
 }
@@ -497,7 +502,7 @@ function replayUnits(
       }];
     }
     if (isWakeNote(message) && message.text?.trim()) {
-      return [{ id: message.id, pathIndex, role: "user", text: paneNoteText(message.text), label: "Pane note: " }];
+      return [{ id: message.id, pathIndex, role: "user", text: wakeNoteText(message), label: "Pane note: " }];
     }
     if (message.kind === "activity" && message.tool && message.tool.ok !== undefined) {
       // An approval chip repeats the call it answered, command text included.
