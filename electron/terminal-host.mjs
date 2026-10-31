@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
@@ -319,16 +319,30 @@ function exitNoteText(screenText, exitCode) {
   return tail ? `${text} Last lines:\n${tail}` : text;
 }
 
-// This -EncodedCommand lands in history, so the first prompt only records the id; Write-Error keeps a failed $? for the user's prompt.
+function commandHash(command) {
+  return createHash("sha256").update(command.trim()).digest("base64");
+}
+
+// Wrap the existing reader without loading a module; Write-Error preserves a failed $? for the user's prompt.
 export function workerShellArgs(id) {
   const script = `$global:OrbitPrompt = $function:prompt
-$global:OrbitHistoryId = -1
+$global:OrbitReadLine = $null
+$global:OrbitHash = $null
 function global:prompt {
   $ok = $?
   $last = Get-History -Count 1
   $last = if ($last) { $last.Id } else { 0 }
-  if ($global:OrbitHistoryId -ne -1 -and $last -ne $global:OrbitHistoryId) { [Console]::Write("$([char]27)]133;D;${id}$([char]7)") }
-  $global:OrbitHistoryId = $last
+  [Console]::Write("$([char]27)]133;D;${id};$last$([char]7)")
+  if (-not $global:OrbitReadLine -and $function:PSConsoleHostReadLine) {
+    $global:OrbitReadLine = $function:PSConsoleHostReadLine
+    function global:PSConsoleHostReadLine {
+      $line = & $global:OrbitReadLine
+      if (-not $global:OrbitHash) { $global:OrbitHash = [Security.Cryptography.SHA256]::Create() }
+      $hash = [Convert]::ToBase64String($global:OrbitHash.ComputeHash([Text.Encoding]::UTF8.GetBytes(([string]$line).Trim())))
+      [Console]::Write("$([char]27)]133;C;${id};$hash$([char]7)")
+      $line
+    }
+  }
   if (-not $ok) { Write-Error '' -ErrorAction Ignore }
   & $global:OrbitPrompt
 }`;
@@ -941,17 +955,36 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
+      commandInputs: [], commandInput: "", commandUserInput: false, runningCommand: null, shellExecuting: false, historyId: null, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
-      if (!session.botPane || osc !== `133;D;${session.id}`) return;
-      session.worker = false;
-      paneRuns?.ended(session.id);
-      session.autoNote = null;
-      session.autoDelivered = true;
-      if (!session.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
-      session.reported = false;
+      if (!session.botPane) return;
+      const [kind, markerId, value] = osc.startsWith("133;") ? osc.slice(4).split(";") : [];
+      if (markerId !== session.id) return;
+      if (kind === "C" && /^[A-Za-z0-9+/]{43}=$/.test(value)) {
+        session.shellExecuting = true;
+        // Input consumed by a program never reaches the shell's reader.
+        const index = session.commandInputs.findIndex((command) => command.hash === value);
+        session.runningCommand = index !== -1 ? session.commandInputs.splice(0, index + 1).at(-1) : null;
+        if (session.commandUserInput) session.runningCommand = null;
+        session.commandUserInput = false;
+        return;
+      }
+      if (kind !== "D" || !/^\d+$/.test(value)) return;
+      if (session.shellExecuting) {
+        session.worker = false;
+        paneRuns?.ended(session.id);
+        session.autoNote = null;
+        session.autoDelivered = true;
+      }
+      session.shellExecuting = false;
+      const command = session.runningCommand;
+      if (session.historyId !== null && value !== session.historyId && command && !command.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
+      session.historyId = value;
+      session.runningCommand = null;
+      session.commandInput = "";
+      session.commandUserInput = false;
     });
     if (botPane) watchNotes();
     session.generation = (generations.get(key) ?? 0) + 1;
@@ -993,6 +1026,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     clearActivityTimer(session);
     const echo = inputEchoText(text);
     const submit = isSubmitInput(text);
+    const commands = `${session.commandInput}${text}`.split("\r");
+    if (submit && !text.includes("\r")) commands.push("");
+    session.commandInput = commands.pop().slice(-INPUT_ECHO_LIMIT);
+    for (const command of commands) {
+      if (command.trim()) session.commandInputs.push({ hash: commandHash(command), reported: false });
+    }
     // only a command the user typed arms their alert
     if (submit) {
       clearTimeout(session.claudeTrustTimer);
@@ -1170,6 +1209,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const submit = mouse ? false : isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
       if (echo || submit) {
+        if (session.botPane && !session.runningCommand) session.commandUserInput = true;
         clearActivityTimer(session);
         session.userInputAt = now();
       }
@@ -1341,7 +1381,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
       if (session && kind === "report") {
         session.reportAt = now();
-        session.reported = true;
+        if (session.runningCommand) session.runningCommand.reported = true;
         paneRuns?.reported(session.id);
         session.finished = [];
         session.autoNote = null;

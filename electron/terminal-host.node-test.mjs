@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import test from "node:test";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender, workerShellArgs } from "./terminal-host.mjs";
 import { installOrbitMsg } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 
@@ -1325,7 +1326,7 @@ test("exited panes do not hold global slots and reclaiming them emits terminal:c
   await assert.rejects(f.host.open(f.event, { ...f.input, sessionId: exited[0] }), /Unknown terminal/);
 });
 
-function stallFixture({ failures = 0, commandEcho = true, ...options } = {}) {
+function stallFixture({ failures = 0, commandEcho = true, shellIntegration = false, ...options } = {}) {
   let owner;
   let clock = Date.UTC(2026, 9, 4);
   let failing = failures;
@@ -1345,6 +1346,11 @@ function stallFixture({ failures = 0, commandEcho = true, ...options } = {}) {
   const openForBot = f.host.openForBot.bind(f.host);
   f.host.openForBot = async (botId, input = {}) => {
     const pane = await openForBot(botId, input);
+    if (shellIntegration) {
+      const child = f.children.find((child) => child.options.env.ORBIT_PANE === pane.sessionId);
+      child.data(finishedMark(pane, 0));
+      if (input.command) child.data(startedMark(pane, input.command.split(/\r?\n|\r/)[0]));
+    }
     if (commandEcho && input.command) {
       f.children.find((child) => child.options.env.ORBIT_PANE === pane.sessionId).data(`${input.command}\r\n`);
     }
@@ -1597,9 +1603,10 @@ test("Claude folder trust waits for the complete menu", async (t) => {
   assert.deepEqual(f.children[0].writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
 });
 
-const finishedMark = (pane) => `\x1b]133;D;${pane.sessionId}\x07`;
+const finishedMark = (pane, historyId = 1) => `\x1b]133;D;${pane.sessionId};${historyId}\x07`;
+const startedMark = (pane, command) => `\x1b]133;C;${pane.sessionId};${createHash("sha256").update(command.trim()).digest("base64")}\x07`;
 
-test("shell integration only wraps the prompt in worker PowerShell", { skip: process.platform !== "win32" }, async (t) => {
+test("shell integration only wraps the worker PowerShell", { skip: process.platform !== "win32" }, async (t) => {
   const f = stallFixture({ platform: "win32" });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
@@ -1613,8 +1620,33 @@ test("shell integration only wraps the prompt in worker PowerShell", { skip: pro
   assert.deepEqual(f.children[1].args, ["-NoLogo"]);
 });
 
+for (const [name, shell] of [
+  ["PowerShell 5.1", path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")],
+  ["PowerShell 7", path.join(process.env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe")],
+]) {
+  test(`shell markers preserve the existing reader and prompt in ${name}`, { skip: process.platform !== "win32" || !fs.existsSync(shell) }, async () => {
+    const args = workerShellArgs("test-pane");
+    const hook = Buffer.from(args.at(-1), "base64").toString("utf16le");
+    const script = `function global:prompt { "PROMPT:$?" }
+function global:PSConsoleHostReadLine { 'echo ok' }
+function global:Get-History { [pscustomobject]@{ Id = 7 } }
+${hook}
+prompt
+PSConsoleHostReadLine
+Write-Error '' -ErrorAction Ignore
+prompt
+prompt`;
+    const stdout = await new Promise((resolve, reject) => execFile(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], (error, stdout) => error ? reject(error) : resolve(stdout)));
+    assert.equal(stdout.split(finishedMark({ sessionId: "test-pane" }, 7)).length - 1, 3);
+    assert.ok(stdout.includes(startedMark({ sessionId: "test-pane" }, "echo ok")));
+    assert.match(stdout, /echo ok\r?\n/);
+    assert.match(stdout, /PROMPT:False/);
+    assert.equal(stdout.match(/PROMPT:True/g).length, 2);
+  });
+}
+
 test("FINISHED fires once per command with the last screen lines", async (t) => {
-  const f = stallFixture({ commandEcho: false });
+  const f = stallFixture({ shellIntegration: true, commandEcho: false });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   await f.advance(10_000);
@@ -1630,69 +1662,199 @@ test("FINISHED fires once per command with the last screen lines", async (t) => 
   assert.equal(f.notes.length, 1);
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(startedMark(pane, "pnpm build"));
+  f.children[0].data(finishedMark(pane, 2));
+  await f.advance(10_000);
   assert.equal(f.notes.length, 2);
 });
 
+test("FINISHED tracks each command in a multi-line bot submission", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "echo setup\npnpm test" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(startedMark(pane, "pnpm test"));
+  f.children[0].data(finishedMark(pane, 2));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 2);
+});
+
+for (const input of ["\r", " \t\r"]) {
+  test(`FINISHED keeps a bot command after empty user input ${JSON.stringify(input)}`, async (t) => {
+    const f = stallFixture({ shellIntegration: true });
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+    f.host.write(f.event, pane.sessionId, input);
+    f.children[0].data(finishedMark(pane, 0));
+    f.host.sendBot("bot-1", { ...pane, text: "pnpm build\r" });
+    f.children[0].data(startedMark(pane, "pnpm build"));
+    f.children[0].data(finishedMark(pane));
+    await f.advance(10_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+test("FINISHED keeps a bot command queued before a reported command completes", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  f.host.sendBot("bot-1", { ...pane, text: "pnpm test\r" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(startedMark(pane, "pnpm test"));
+  f.children[0].data(finishedMark(pane, 2));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
 test("FINISHED is suppressed by a report only for that command", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.host.attendBot("bot-1", pane.sessionId, "report");
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
-  f.children[0].data(finishedMark(pane));
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(startedMark(pane, "pnpm build"));
+  f.children[0].data(finishedMark(pane, 2));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
 });
 
 test("FINISHED is cleared by a report that lands before delivery", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data(finishedMark(pane));
   f.host.attendBot("bot-1", pane.sessionId, "report");
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(startedMark(pane, "pnpm build"));
+  f.children[0].data(finishedMark(pane, 2));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED skips a hand-typed command after a bot command reports DONE", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.write(f.event, pane.sessionId, "claude\r");
+  f.host.write(f.event, pane.sessionId, "/logout\r");
+  f.children[0].data(startedMark(pane, "claude"));
+  f.children[0].data(finishedMark(pane, 2));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(startedMark(pane, "pnpm build"));
+  f.children[0].data(finishedMark(pane, 3));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED skips hand-typed commands in an empty bot pane", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.host.write(f.event, pane.sessionId, "claude\r");
+  f.children[0].data(startedMark(pane, "claude"));
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("FINISHED keeps a bot command when a person answers its prompt", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "script.ps1" });
+  f.host.write(f.event, pane.sessionId, "yes\r");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+for (const reported of [false, true]) {
+  test(`FINISHED skips a hand-typed command after a bot answers a running program, reported ${reported}`, async (t) => {
+    const f = stallFixture({ shellIntegration: true });
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "script.ps1" });
+    f.host.sendBot("bot-1", { ...pane, text: "yes\r" });
+    if (reported) f.host.attendBot("bot-1", pane.sessionId, "report");
+    f.children[0].data(finishedMark(pane));
+    await f.advance(10_000);
+    assert.equal(f.notes.length, reported ? 0 : 1);
+    f.host.write(f.event, pane.sessionId, "yes\r");
+    f.children[0].data(startedMark(pane, "yes"));
+    f.children[0].data(finishedMark(pane, 2));
+    await f.advance(10_000);
+    assert.equal(f.notes.length, reported ? 0 : 1);
+    f.host.sendBot("bot-1", { ...pane, text: "pnpm test\r" });
+    f.children[0].data(startedMark(pane, "pnpm test"));
+    f.children[0].data(finishedMark(pane, 3));
+    await f.advance(10_000);
+    assert.equal(f.notes.length, reported ? 1 : 2);
+  });
+}
+
+test("FINISHED keeps a bot command after a person cancels an unsubmitted line", async (t) => {
+  const f = stallFixture({ shellIntegration: true });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.host.write(f.event, pane.sessionId, "oops");
+  f.host.write(f.event, pane.sessionId, "\x03");
+  f.children[0].data(finishedMark(pane, 0));
+  f.host.sendBot("bot-1", { ...pane, text: "pnpm test\r" });
+  f.children[0].data(startedMark(pane, "pnpm test"));
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
 });
 
 test("FINISHED never fires for the main terminal", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
   const main = await f.host.open(f.event, f.input);
   f.children[0].data(finishedMark({ sessionId: main.id }));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[1].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
 });
 
 test("FINISHED skips an explicit read after completion, not background reads", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data(finishedMark(pane));
   f.host.readBot("bot-1", { sessionId: pane.sessionId, observe: true });
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
-  f.children[0].data(finishedMark(pane));
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(startedMark(pane, "pnpm build"));
+  f.children[0].data(finishedMark(pane, 2));
   f.host.readBot("bot-1", { sessionId: pane.sessionId });
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
 });
 
 test("FINISHED accepts split markers but ignores prompt text and foreign markers", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data(`PS C:\\> \r\n\x1b]133;D;foreign\x07\x1b]133;A;${pane.sessionId}\x07`);
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
@@ -1993,7 +2155,7 @@ test("a closed pane drops a held turn-end note and one waiting to retry after it
 });
 
 test("FINISHED that fails to post goes out once on a later check", async (t) => {
-  const f = stallFixture({ failures: 1, commandEcho: false });
+  const f = stallFixture({ shellIntegration: true, failures: 1, commandEcho: false });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data("Tests passed\r\n");
@@ -2008,7 +2170,7 @@ test("FINISHED that fails to post goes out once on a later check", async (t) => 
 });
 
 test("FINISHED pending when the pane exits is still delivered", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ shellIntegration: true });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data("Tests passed\r\n");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,7 +79,8 @@ test("closed panes and panes whose command ended get no note", async (t) => {
   const closed = await app.host.openForBot("bot-1", { label: "CLOSED", command: "claude" });
   await app.host.closeForBot("bot-1", closed.sessionId);
   const ended = await app.host.openForBot("bot-1", { label: "ENDED", command: "npm test" });
-  app.children.at(-1).data(`\x1b]133;D;${ended.sessionId}\x07`);
+  const hash = createHash("sha256").update("npm test").digest("base64");
+  app.children.at(-1).data(`\x1b]133;D;${ended.sessionId};0\x07\x1b]133;C;${ended.sessionId};${hash}\x07\x1b]133;D;${ended.sessionId};1\x07`);
   await app.host.openForBot("bot-1", { label: "EXITED", command: "claude" });
   app.children.at(-1).exit({ exitCode: 0 });
   await app.host.openForBot("bot-1", { label: "IDLE" });

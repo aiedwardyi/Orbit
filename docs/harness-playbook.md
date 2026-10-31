@@ -110,12 +110,12 @@ git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 
 ## Clean up
 
-You own what you created for this task: worktrees, scratch folders, test data
-folders, servers and panes. Record each path in the card's progress file when
-you create it.
+You own the worktrees, scratch folders, test data, servers and panes you create.
+Record paths in the card's progress file.
 
 - Scratch and test data go in one folder per card, `<system temp>\wink-<NICKNAME>`.
   Never reuse another card's folder.
+  Scratch is removed with `orbit-clean <NICKNAME>`.
 - Once the result is verified and landed, or the user drops it, remove what you
   created. Keep only evidence files the user still needs (sheet.png, findings),
   outside temp.

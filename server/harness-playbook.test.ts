@@ -68,6 +68,7 @@ describe("harness playbook", () => {
     expect(prompt).toContain("-Attributes ReparsePoint | % { [System.IO.Directory]::Delete(");
     expect(prompt).toContain("wipes their targets");
     expect(prompt).toContain("wink-<NICKNAME>");
+    expect(prompt).toContain("Scratch is removed with `orbit-clean <NICKNAME>`.");
     expect(prompt).toContain("Never delete by wildcard, age or folder size");
     expect(prompt).not.toContain("Remove it once the branch has landed");
   });
