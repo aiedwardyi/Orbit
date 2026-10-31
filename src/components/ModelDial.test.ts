@@ -3,13 +3,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { modelDialEnabled } from "@/lib/feature-flags";
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot, InstanceInfo } from "@/state/store";
 import { ModelPickerControl } from "./ModelPicker";
 
 const L5 = ["low", "medium", "high", "xhigh", "max"] as const;
 const dispatch = vi.fn();
-const animate = vi.fn(() => ({ cancel: vi.fn() } as unknown as Animation));
+const animate = vi.fn((_keyframes: Keyframe[], _options?: number | KeyframeAnimationOptions) => ({ cancel: vi.fn() } as unknown as Animation));
 const originalAnimate = Element.prototype.animate;
 let root: Root;
 
@@ -24,7 +25,7 @@ function engine(instanceId: string, driverKind: string, ids: string[], signedIn 
 
 function media({ wide = true, reduced = false, phone = false } = {}) {
   vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-    matches: query.includes("reduce") ? reduced : query.startsWith("(max-width") ? phone : wide,
+    matches: query.includes("reduce") ? reduced : query.split(", ").some((part) => part.startsWith("(max-width") ? phone : wide),
     media: query,
     onchange: null,
     addEventListener: () => undefined,
@@ -35,24 +36,32 @@ function media({ wide = true, reduced = false, phone = false } = {}) {
   }));
 }
 
-async function mount({ grokSignedIn = true, dial = true, model = "claude-opus-5-5" } = {}) {
-  const host = document.createElement("div");
-  document.body.append(host);
-  root = createRoot(host);
+function control({ grokSignedIn = true, dial = true, model = "claude-opus-5-5", open = true } = {}) {
   const instances = [
     engine("claude", "claudeAgent", ["claude-opus-5-5", "claude-sonnet-5-5"]),
     engine("codex", "codex", ["gpt-6.1-sol", "gpt-6-luna"]),
     engine("grok", "grokAgent", ["grok-4.7"], grokSignedIn),
   ];
   const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Dial", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: { instanceId: "claude", model, effort: "high", mode: "pinned" } };
-  await act(async () => {
-    root.render(createElement(I18nProvider, null, createElement(ModelPickerControl, {
-      bot,
-      store: { state: { instances, selectedId: "bot-1" }, dispatch, refreshInstances: async () => undefined },
-      defaultOpen: true,
-      dial,
-    })));
+  return createElement(ModelPickerControl, {
+    bot,
+    store: { state: { instances, selectedId: "bot-1" }, dispatch, refreshInstances: async () => undefined },
+    defaultOpen: open,
+    dial,
   });
+}
+
+async function render(...controls: ReturnType<typeof control>[]) {
+  await act(async () => {
+    root.render(createElement(I18nProvider, null, ...controls));
+  });
+}
+
+async function mount(options: Parameters<typeof control>[0] = {}) {
+  const host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await render(control(options));
 }
 
 async function key(key: string) {
@@ -335,5 +344,181 @@ describe("ModelDial", () => {
       await settle();
       expect(selected()).toBe("gpt-6.1-sol");
     });
+  });
+});
+
+describe("ModelDial ring", () => {
+  let reads = 0;
+  const cap = () => document.querySelectorAll(".dial-ring .cap")[1];
+  const turns = (el: Element | undefined) => animate.mock.calls.filter((_, k) => animate.mock.contexts[k] === el).map(([keyframes]) => keyframes.map((frame) => Number(String(frame.transform).slice(7, -4))));
+
+  beforeEach(() => {
+    reads = 0;
+    const real = globalThis.getComputedStyle;
+    vi.spyOn(globalThis, "getComputedStyle").mockImplementation((el, pseudo) => {
+      if (!el.classList.contains("dial-stage")) return real(el, pseudo);
+      reads++;
+      // SAFETY: the dial reads only getPropertyValue off the stage style.
+      return { getPropertyValue: (name: string) => name === "--spring" ? "0, .8, 1" : "" } as CSSStyleDeclaration;
+    });
+  });
+
+  it("places the ring without reading the spring curve", async () => {
+    media();
+    await mount();
+    await wait(50);
+    expect(reads).toBe(0);
+    expect(turns(cap()).at(-1)?.at(-1)).toBe(53.6 * 3.6);
+  });
+
+  it("jumps the ring under reduced motion without reading the spring curve", async () => {
+    media({ reduced: true });
+    await mount();
+    await wait(50);
+    const before = turns(cap()).length;
+    await key("ArrowDown");
+    expect(turns(cap())).toHaveLength(before + 1);
+    expect(turns(cap()).at(-1)).toHaveLength(1);
+    expect(reads).toBe(0);
+  });
+
+  it("eases a timed sweep with one spring read and resumes an interrupted one in place", async () => {
+    vi.useFakeTimers({ toFake: ["performance", "requestAnimationFrame", "cancelAnimationFrame"] });
+    media();
+    await mount();
+    await wait(50);
+    const from = 53.6 * 3.6;
+    await key("ArrowDown");
+    expect(reads).toBe(1);
+    const first = turns(cap()).at(-1)!;
+    const to = first.at(-1)!;
+    expect(first).toHaveLength(25);
+    expect(first[0]).toBe(from);
+    expect(first[12]).toBe(from + (to - from) * 0.8);
+    await wait(85);
+    await key("ArrowDown");
+    expect(reads).toBe(2);
+    expect(turns(cap()).at(-1)![0]).toBe(from + (to - from) * 0.8);
+  });
+});
+
+describe("ModelDial font warm", () => {
+  let load: ReturnType<typeof vi.fn<(font: string) => Promise<FontFace[]>>>;
+  const trigger = (k = 0) => document.querySelectorAll<HTMLButtonElement>('[aria-haspopup="dialog"]')[k]!;
+  const loaded = () => load.mock.calls.map(([font]) => font);
+  const WEIGHTS = ['400 11px "JetBrains Mono"', '500 11px "JetBrains Mono"', '600 11px "JetBrains Mono"'];
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // SAFETY: the picker only schedules function callbacks.
+    vi.spyOn(window, "setTimeout").mockImplementation((fn, ms) => setTimeout(fn as () => void, ms));
+    load = vi.fn(async () => []);
+    Object.defineProperty(document, "fonts", { configurable: true, value: { load } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, "fonts");
+    Reflect.deleteProperty(window, "requestIdleCallback");
+    Reflect.deleteProperty(window, "cancelIdleCallback");
+  });
+
+  it("loads the font once for every closed desktop picker", async () => {
+    media();
+    await render(control({ open: false }), control({ open: false }));
+    await wait(1999);
+    expect(load).not.toHaveBeenCalled();
+    await wait(1);
+    expect(loaded()).toEqual(WEIGHTS);
+    await wait(10000);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits for an idle moment when the browser has one", async () => {
+    const idle: Array<() => void> = [];
+    const request = vi.fn((callback: () => void, _options?: IdleRequestOptions) => idle.push(callback));
+    Object.defineProperty(window, "requestIdleCallback", { configurable: true, value: request });
+    Object.defineProperty(window, "cancelIdleCallback", { configurable: true, value: vi.fn() });
+    media();
+    await render(control({ open: false }));
+    await wait(2000);
+    expect(request).toHaveBeenCalledWith(expect.any(Function), { timeout: 3000 });
+    expect(load).not.toHaveBeenCalled();
+    idle.forEach((callback) => callback());
+    expect(loaded()).toEqual(WEIGHTS);
+  });
+
+  it("skips the load once a picker opens first", async () => {
+    media();
+    await render(control({ open: false }), control({ open: false }));
+    await wait(1000);
+    await act(async () => trigger(1).click());
+    expect(document.querySelector(".model-dial")).not.toBeNull();
+    await wait(5000);
+    await key("Escape");
+    await wait(10000);
+    expect(document.querySelector("[data-model-picker-content]")).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("cancels on unmount and lets the next picker take over", async () => {
+    media();
+    await render(control({ open: false }));
+    await wait(1000);
+    await render();
+    await wait(10000);
+    expect(load).not.toHaveBeenCalled();
+    await render(control({ open: false }));
+    await wait(2000);
+    expect(loaded()).toEqual(WEIGHTS);
+  });
+
+  it("cancels when the flag turns off", async () => {
+    media();
+    await render(control({ open: false }));
+    await wait(1000);
+    await render(control({ open: false, dial: false }));
+    await wait(10000);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the flag is off", false, {}],
+    ["config has not loaded", modelDialEnabled(null), {}],
+    ["the desktop is too narrow", true, { wide: false }],
+  ])("never loads when %s", async (_, dial, screen) => {
+    media(screen);
+    await render(control({ open: false, dial }));
+    await wait(10000);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("leaves the phone dial to load its font on open", async () => {
+    media({ wide: false, phone: true });
+    await render(control({ open: false }));
+    await wait(10000);
+    expect(load).not.toHaveBeenCalled();
+    await act(async () => trigger().click());
+    expect(document.querySelector(".dial-stage")?.hasAttribute("data-phone")).toBe(true);
+  });
+
+  it("does nothing without a font API", async () => {
+    Reflect.deleteProperty(document, "fonts");
+    media();
+    await render(control({ open: false }));
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => trigger().click());
+    expect(document.querySelector(".model-dial")).not.toBeNull();
+  });
+
+  it("swallows a rejected load without retrying", async () => {
+    load.mockRejectedValue(new Error("offline"));
+    media();
+    await render(control({ open: false }));
+    await wait(2000);
+    await wait(10000);
+    expect(load).toHaveBeenCalledTimes(3);
   });
 });

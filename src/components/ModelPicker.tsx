@@ -16,7 +16,7 @@ import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { modelDialEnabled } from "@/lib/feature-flags";
-import { ModelDial, useModelDialFits, type ModelDialHandle } from "./ModelDial";
+import { ModelDial, useDialFontWarm, useModelDialFits, type ModelDialHandle } from "./ModelDial";
 import "./ModelPicker.css";
 
 const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
@@ -62,6 +62,7 @@ export function ModelPickerControl({
   const dialFits = useModelDialFits(dial);
   const [listView, setListView] = useState(false);
   const dialView = dial && dialFits && !listView;
+  useDialFontWarm(dial, open);
   const dialRef = useRef<ModelDialHandle>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);

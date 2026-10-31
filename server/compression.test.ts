@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { acceptedEncoding, JSON_COMPRESS_MIN_BYTES, sendJson, sendStaticFile, sendText } from "./compression.ts";
+import { acceptedEncoding, IMMUTABLE_CACHE, JSON_COMPRESS_MIN_BYTES, sendJson, sendStaticFile, sendText } from "./compression.ts";
 
 type Raw = { status: number; headers: IncomingHttpHeaders; body: Buffer };
 
@@ -143,5 +143,14 @@ describe("sendStaticFile", () => {
     expect((await get(port, { "accept-encoding": "gzip, br" })).headers["content-encoding"]).toBe("br");
     const head = await get(port, { "accept-encoding": "gzip, br" }, "HEAD");
     expect(head.headers["content-encoding"]).toBeUndefined();
+  });
+
+  it("caches mascot avatars like hashed assets", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orbit-compress-"));
+    const png = join(dir, "icon-31-wink.png");
+    writeFileSync(png, Buffer.alloc(2_000, 7));
+    const port = await serve((res) => sendStaticFile(res, png, res.req.url ?? "/", "image/png"));
+    expect((await get(port, {}, "GET", "/avatars/icon-31-wink.png")).headers["cache-control"]).toBe(IMMUTABLE_CACHE);
+    expect((await get(port, {}, "GET", "/app-icon.png")).headers["cache-control"]).toBeUndefined();
   });
 });
