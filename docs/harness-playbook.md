@@ -181,7 +181,7 @@ Keep one line per user-facing feature in `built.md` (project notes, else repo
 `docs/`): `- Name | where: device, size, setting | files | PRs`.
 
 - Before you say a feature exists, works a certain way, or is missing, grep
-  built.md, then read the code it names.
+  built.md, then read the code it names. No line: search the code.
 - When you land a user-facing change, add or edit its one line in the same step.
 
 ## Reports
