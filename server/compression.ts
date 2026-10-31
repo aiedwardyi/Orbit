@@ -100,7 +100,8 @@ export function sendStaticFile(res: ServerResponse, file: string, pathname: stri
   if (!stat.isFile()) throw new Error(`not a file: ${file}`);
   const data = readFileSync(file);
   if (!STATIC_TEXT_EXTENSIONS.has(extname(file).toLowerCase())) {
-    res.writeHead(200, pathname.startsWith("/assets/")
+    // Cached for a year like hashed assets, so new mascot art needs a new file name.
+    res.writeHead(200, pathname.startsWith("/assets/") || pathname.startsWith("/avatars/")
       ? { "content-type": contentType, "cache-control": IMMUTABLE_CACHE }
       : { "content-type": contentType });
     res.end(data);
