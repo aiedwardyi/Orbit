@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { SNAPSHOT_CACHE_KEY } from "@/state/snapshot-cache";
 import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
+import { SWIPE_MOTION_MS } from "@/lib/phone-swipe";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -36,6 +37,18 @@ async function tap(label: string) {
 
 async function escape() {
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+}
+
+async function swipe() {
+  const target = dialog()!.querySelector("[data-settings-page]") ?? dialog()!;
+  await act(async () => {
+    for (const [type, x] of [["touchstart", 30], ["touchmove", 600], ["touchend", 600]] as const) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: 200 }] });
+      target.dispatchEvent(event);
+    }
+  });
+  await wait(SWIPE_MOTION_MS + 40);
 }
 
 beforeEach(() => {
@@ -100,6 +113,33 @@ describe("phone Settings navigation", () => {
     await escape();
     await wait(PRESENCE_EXIT_MS + 40);
     expect(dialog()).toBeNull();
+  });
+
+  it("swipes a section back to the list, then swipes Settings closed", async () => {
+    await open();
+    await tap("Usage");
+    expect(dialog()!.querySelector("[data-settings-list]")?.hasAttribute("inert")).toBe(true);
+    await swipe();
+    expect(button("Back")).toBeNull();
+    expect(dialog()!.querySelector("[data-settings-list]")?.hasAttribute("inert")).toBe(false);
+    await swipe();
+    expect(dialog()?.parentElement?.hasAttribute("data-closing")).toBe(true);
+    expect((dialog() as HTMLElement).style.transform).toContain("translate3d(");
+    await wait(PRESENCE_EXIT_MS + 40);
+    expect(dialog()).toBeNull();
+  });
+
+  it("keeps focus out of the Settings list underneath a section", async () => {
+    await open();
+    await tap("General");
+    await act(async () => button("Back")!.focus());
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+    expect(document.activeElement?.closest("[inert]")).toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(button("Back"));
+    await escape();
+    await escape();
+    await wait(PRESENCE_EXIT_MS + 40);
   });
 
   it("pops the page on phone Back and closes on the next Back", async () => {

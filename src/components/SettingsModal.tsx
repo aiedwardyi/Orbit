@@ -46,6 +46,7 @@ import { saveReplyStyle, useReplyStyle, type ReplyStyle } from "@/lib/reply-styl
 import { cn } from "@/lib/cn";
 import { useBackLayer } from "@/lib/use-back-layer";
 import { useIsPhone } from "@/lib/use-phone-swipe";
+import { useSettingsSwipe } from "@/lib/use-settings-swipe";
 import { SyncPanel } from "./SyncPanel";
 import { StartFreshRow } from "./StartFreshRow";
 import { ErrorReportsRow } from "./ErrorReportsRow";
@@ -549,6 +550,7 @@ export function SettingsModal({
   useEffect(() => { backRef.current = back; }, [back]);
   useBackLayer(!closing && phone && page, back);
   const dialogRef = useRef<HTMLDivElement>(null);
+  useSettingsSwipe(dialogRef, phone && !closing, phone && page ? section : false, back);
   const [query, setQuery] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
   const [preferencesOpen, setPreferencesOpen] = useState(defaultAdvancedOpen);
@@ -624,7 +626,7 @@ export function SettingsModal({
         dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      );
+      ).filter((node) => !node.closest("[inert]"));
       if (focusable.length === 0) {
         event.preventDefault();
         dialog.focus();
@@ -658,9 +660,10 @@ export function SettingsModal({
     <div
       data-closing={closing || undefined}
       inert={closing}
-      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 max-md:bg-transparent"
       onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "toggleAppSettings", open: false })}
     >
+      {phone && <div data-settings-scrim className="pointer-events-none absolute inset-0 bg-black/50" />}
       <div
         ref={dialogRef}
         role={closing ? undefined : "dialog"}
@@ -669,13 +672,14 @@ export function SettingsModal({
         tabIndex={-1}
         // h-* alone overflows the 600x480 window floor above and below; max-h-full
         // hands the excess to the content pane, which is the only thing that scrolls.
-        className="animate-pop-in flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:flex-col"
+        className="animate-pop-in flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:relative max-md:flex-col"
       >
-        {phone && !page && (
-          <nav className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {phone && (
+          <div data-settings-underlay className={cn("flex min-h-0 min-w-0 flex-1 flex-col", page && "absolute inset-0")}>
+          <nav data-settings-list aria-hidden={page || undefined} inert={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex shrink-0 items-center justify-between px-5 py-3">
-              <span id="app-settings-title" className="text-[17px] font-semibold text-ink">{t("settings.title")}</span>
-              <button onClick={() => dispatch({ type: "toggleAppSettings", open: false })} aria-label={t("settings.close")} className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink">
+              <span id={!page ? "app-settings-title" : undefined} className="text-[17px] font-semibold text-ink">{t("settings.title")}</span>
+              <button onClick={() => dispatch({ type: "toggleAppSettings", open: false })} aria-label={!page ? t("settings.close") : undefined} className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink">
                 <X size={18} />
               </button>
             </div>
@@ -691,6 +695,7 @@ export function SettingsModal({
               </div>
             </div>
           </nav>
+          </div>
         )}
         {!phone && (
         <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3 max-md:w-full max-md:border-r-0 max-md:border-b max-md:p-2">
@@ -748,7 +753,7 @@ export function SettingsModal({
         )}
 
         {page && (
-        <div data-settings-page={phone ? section : undefined} className="flex min-w-0 flex-1 flex-col max-md:min-h-0">
+        <div data-settings-page={phone ? section : undefined} className={cn("flex min-w-0 flex-1 flex-col max-md:min-h-0", phone && "relative bg-panel")}>
           <div className={phone ? "relative flex shrink-0 items-center gap-3 px-2 py-3" : "flex shrink-0 items-center justify-between px-5 py-3 gap-3"}>
             {phone && (
               <button onClick={back} aria-label={t("settings.sync.back")} className="flex min-h-11 items-center gap-0.5 rounded-md px-1.5 text-[15px] text-accent hover:bg-control">
