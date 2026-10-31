@@ -91,6 +91,12 @@ export function termElapsed(ms: number): string {
 
 export type TermMeter = { id: string; kind: WindowKind; percent: number | null; bar: string };
 
+export function termModelLabel(label: string): string {
+  return label.replace(/^(Claude|Meta|Google|OpenAI|xAI)\s+/, "")
+    .replace(/\s+· on the box$/, "")
+    .replace(/\s+\((Thinking|High|Medium|Low|Codex)\)$/, "");
+}
+
 /** Follows the usage mode like every Wink meter, so by default it shows what's left. */
 export function termMeter(window: RateLimitWindow, now: number, mode: UsageMode): TermMeter {
   const used = windowFillPercent(window, now);

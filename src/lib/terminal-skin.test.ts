@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { TERM_STEP_WORD, logLine, termBlock, termElapsed, termHeaderArgs, termMeter, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
+import { TERM_STEP_WORD, logLine, termBlock, termElapsed, termHeaderArgs, termMeter, termModelLabel, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
 import { termVerb as sharedTermVerb } from "../../shared/tool-verb";
 import { en, ko } from "./i18n-catalog";
 import { applyLocale, t } from "./i18n";
+
+describe("termModelLabel", () => {
+  it.each([
+    ["Claude Opus 5.5", "Opus 5.5"],
+    ["Claude Sonnet 4.6 (Thinking)", "Sonnet 4.6"],
+    ["Meta Muse 1.3 Contributor", "Muse 1.3 Contributor"],
+    ["GPT-5.4 (Codex) · on the box", "GPT-5.4"],
+    ["Gemini 4 Argon (Medium)", "Gemini 4 Argon"],
+    ["Auto (recommended)", "Auto (recommended)"],
+    ["Custom model", "Custom model"],
+  ])("shortens %s to %s without hiding the model", (label, short) => {
+    expect(termModelLabel(label)).toBe(short);
+  });
+});
 
 describe("termVerb", () => {
   it("is the verb map search reads", () => {

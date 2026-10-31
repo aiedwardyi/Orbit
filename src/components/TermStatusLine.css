@@ -1,0 +1,43 @@
+.term-status[data-term-phone] > div {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.term-status[data-term-phone] > [data-term-meters="2"] {
+  font-size: 11px;
+}
+
+.term-status[data-term-phone="multiplexer"] {
+  gap: 1ch;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.term-status[data-term-phone="multiplexer"]::before {
+  content: none;
+}
+
+.term-status[data-term-phone="multiplexer"] > div:first-of-type {
+  flex: 1 0 auto;
+}
+
+.term-status[data-term-phone="multiplexer"] > div:last-child {
+  flex: none;
+}
+
+.term-status[data-term-phone] [data-term-tab] {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 7ch;
+  padding: 0 0.5ch;
+  background: var(--color-accent-ink);
+  color: var(--color-accent-text);
+}
+
+.term-status[data-term-phone] [data-term-tab-name] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
