@@ -98,6 +98,8 @@ export function buildTeamSnag(raw: SpooledSnag, ctx: ScrubContext & { build: str
 export interface TeamSnagsOptions {
   userData: string;
   status(): PhoneRelayStatus;
+  /** Relay switched on, even while its client is still loading or failed to. */
+  enabled?(): boolean;
   send(snag: TeamSnag): Promise<boolean>;
   /** The error-report switch: reports follow it. */
   consent(): boolean;
@@ -140,7 +142,7 @@ export class TeamSnags {
   async sync(): Promise<void> {
     const status = this.options.status();
     try {
-      if (status.state === "off" || (status.state === "connected" && !status.snags) || !this.options.consent()) {
+      if (!(this.options.enabled?.() ?? status.state !== "off") || (status.state === "connected" && !status.snags) || !this.options.consent()) {
         rmSync(this.dir, { recursive: true, force: true });
         return;
       }

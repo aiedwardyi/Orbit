@@ -950,6 +950,7 @@ const snagUserData = process.env.OMB_USER_DATA;
 const teamSnags = snagUserData ? new TeamSnags({
   userData: snagUserData,
   status: () => phoneAccess.status(),
+  enabled: () => phoneAccess.relayEnabled(),
   send: (snag) => phoneAccess.sendSnag(snag),
   consent: () => readErrorReportConsent(snagUserData),
   teacher: (botId) => {

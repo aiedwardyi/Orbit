@@ -73,8 +73,9 @@ describe("TeamSnags", () => {
   let sent: TeamSnag[];
   let accept: boolean;
   const spool = () => join(userData, SNAG_SPOOL_DIR);
-  const make = () => new TeamSnags({
+  const make = (enabled?: () => boolean) => new TeamSnags({
     userData,
+    enabled,
     status: () => status,
     send: async (snag) => {
       if (!accept) return false;
@@ -169,7 +170,7 @@ describe("TeamSnags", () => {
       loadClient: async () => { throw new Error("offline"); },
       onChange: () => { status = access.status(); void snags.sync(); },
     });
-    const snags = make();
+    const snags = make(() => access.relayEnabled());
     await access.start(() => {});
     expect(readdirSync(spool())).toHaveLength(1);
     expect(sent).toEqual([]);
