@@ -96,6 +96,28 @@ describe("relay client", () => {
     phone.destroy();
   });
 
+  it("sends a snag only after a ready that offered snags, one at a time", async () => {
+    r = await rig();
+    const relay = r.relay;
+    relay.on("event", () => bus.emit("event"));
+    const snag = (id: string) => ({ id: id.repeat(32), at: 1, event: "stalled" as const, build: "1", os: "win32", teacher: "", worker: "", pane8: "", label: "", minutes: 0, notes: [], detail: "", tail: "" });
+    const old = start();
+    await waitFor(() => old.c.snapshot().state === "connected");
+    expect(old.c.snapshot().snags).toBe(false);
+    expect(await old.c.sendSnag(snag("a"))).toBe(false);
+    expect(relay.count("snag")).toBe(0);
+    old.c.stop();
+
+    relay.offerSnags = true;
+    const fresh = start();
+    await waitFor(() => fresh.c.snapshot().snags);
+    const first = fresh.c.sendSnag(snag("b"));
+    expect(await fresh.c.sendSnag(snag("c"))).toBe(false);
+    expect(await first).toBe(true);
+    expect(relay.snags).toEqual([snag("b")]);
+    expect(fresh.c.snapshot().state).toBe("connected");
+  });
+
   it("bursts toward pool.max when a phone drains the pool, bounded by parallel opens", async () => {
     r = await rig();
     const relay = r.relay;

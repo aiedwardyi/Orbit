@@ -4,7 +4,7 @@
 // starts a timer or creates a key.
 
 import type { HarnessHandler } from "../early-listen.ts";
-import type { PhoneRelayStatus } from "../../shared/relay-protocol.ts";
+import type { PhoneRelayStatus, TeamSnag } from "../../shared/relay-protocol.ts";
 import type { AcmeAccountConfig } from "./acme.ts";
 import { enrollWith } from "./enroll.ts";
 import { createPhoneRelay, defaultDeps } from "./runtime.ts";
@@ -56,6 +56,8 @@ export interface PhoneRelay {
   reauth?(): void;
   /** Whether this PC holds a wka1 for the signed-in account, so phones can find it. */
   accountReady?(): boolean;
+  /** True once the relay stored or dropped the snag for good. */
+  sendSnag?(snag: TeamSnag): Promise<boolean>;
 }
 
 export interface PhoneRelayEnrollOptions {

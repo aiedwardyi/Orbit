@@ -42,6 +42,8 @@ export interface RelayLimits {
   maxBodyBytes: number;
   /** On shutdown, spliced connections get this long before they are cut. */
   drainGraceMs: number;
+  /** Stuck-worker reports kept per PC label per UTC day. */
+  snagsPerLabelPerDay: number;
 }
 
 export const DEFAULT_LIMITS: Readonly<RelayLimits> = Object.freeze({
@@ -69,6 +71,7 @@ export const DEFAULT_LIMITS: Readonly<RelayLimits> = Object.freeze({
   maxStatusEntries: 100_000,
   maxBodyBytes: 4_096,
   drainGraceMs: 10_000,
+  snagsPerLabelPerDay: 20,
 });
 
 interface Bucket {

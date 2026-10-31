@@ -50,6 +50,8 @@ export const readyMessageSchema = z.object({
   pool: z.object({ min: count, max: count }).refine((pool) => pool.min <= pool.max, "pool.min exceeds pool.max"),
   ticket: z.string().optional(),
   account: z.string().optional(),
+  /** The relay takes `snag` frames. Older PCs strip this field. */
+  snags: z.literal(true).optional(),
 });
 /** Relay to PC: a phone waits on an empty pool. */
 export const wantMessageSchema = z.object({ type: z.literal("want"), n: count });
@@ -61,6 +63,10 @@ export const noticeMessageSchema = z.object({ type: z.literal("notice"), code: n
 export const joinMessageSchema = z.object({ type: z.literal("join"), session: z.string(), poolToken: z.string() });
 /** Relay to PC: a phone arrived. Raw bytes follow; neither side frames again. */
 export const goMessageSchema = z.object({ type: z.literal("go"), peer: z.string() });
+/** PC to relay, only after a ready with `snags`. The relay validates `data` with teamSnagSchema and drops a bad one. */
+export const snagMessageSchema = z.object({ type: z.literal("snag"), data: z.unknown() });
+/** Relay to PC: the snag with this id is stored or dropped for good. */
+export const snaggedMessageSchema = z.object({ type: z.literal("snagged"), id: z.string() });
 
 export const relayMessageSchema = z.discriminatedUnion("type", [
   helloMessageSchema,
@@ -72,6 +78,8 @@ export const relayMessageSchema = z.discriminatedUnion("type", [
   noticeMessageSchema,
   joinMessageSchema,
   goMessageSchema,
+  snagMessageSchema,
+  snaggedMessageSchema,
 ]);
 
 export type HelloMessage = z.infer<typeof helloMessageSchema>;
@@ -84,6 +92,8 @@ export type NoticeCode = z.infer<typeof noticeCodeSchema>;
 export type NoticeMessage = z.infer<typeof noticeMessageSchema>;
 export type JoinMessage = z.infer<typeof joinMessageSchema>;
 export type GoMessage = z.infer<typeof goMessageSchema>;
+export type SnagMessage = z.infer<typeof snagMessageSchema>;
+export type SnaggedMessage = z.infer<typeof snaggedMessageSchema>;
 
 export type ControlMessage =
   | HelloMessage
@@ -92,7 +102,9 @@ export type ControlMessage =
   | WantMessage
   | PingMessage
   | PongMessage
-  | NoticeMessage;
+  | NoticeMessage
+  | SnagMessage
+  | SnaggedMessage;
 export type DataMessage = JoinMessage | GoMessage;
 export type RelayMessage = ControlMessage | DataMessage;
 
@@ -105,6 +117,36 @@ export function isControlMessage(message: RelayMessage): message is ControlMessa
 export function isDataMessage(message: RelayMessage): message is DataMessage {
   return message.type === "join" || message.type === "go";
 }
+
+// ---------------------------------------------------------------------------
+// Team snags: stuck-worker reports from a teammate PC to the relay owner
+
+export const SNAG_EVENTS = ["stalled", "note-lost", "wake-failed", "reply-unwoken"] as const;
+/** Bytes of the `snag` frame's JSON. */
+export const SNAG_MAX_BYTES = 8 * 1024;
+export const SNAG_TAIL_LINES = 30;
+export const SNAG_TAIL_CHARS = 3000;
+export const SNAG_DETAIL_CHARS = 300;
+export const SNAG_NOTES_MAX = 12;
+export const SNAG_ID_RE = /^[0-9a-f]{32}$/;
+
+const short = (max: number) => z.string().max(max);
+export const teamSnagSchema = z.strictObject({
+  id: z.string().regex(SNAG_ID_RE),
+  at: z.int().nonnegative(),
+  event: z.enum(SNAG_EVENTS),
+  build: short(40),
+  os: short(20),
+  teacher: short(120),
+  worker: short(20),
+  pane8: z.string().regex(/^[0-9a-zA-Z_-]{0,8}$/),
+  label: short(40),
+  minutes: z.int().min(0).max(100_000),
+  notes: z.array(z.tuple([short(20), z.int().min(0).max(100_000)])).max(SNAG_NOTES_MAX),
+  detail: short(SNAG_DETAIL_CHARS),
+  tail: short(SNAG_TAIL_CHARS),
+});
+export type TeamSnag = z.infer<typeof teamSnagSchema>;
 
 // ---------------------------------------------------------------------------
 // Frame codec
@@ -505,6 +547,8 @@ export interface PhoneRelayStatus {
   lastError: string | null;
   /** Next reconnect attempt, ms since epoch. */
   nextRetryAt: number | null;
+  /** The connected relay takes stuck-worker reports. */
+  snags?: boolean;
 }
 
 export const PHONE_RELAY_OFF: Readonly<PhoneRelayStatus> = Object.freeze({

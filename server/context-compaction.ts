@@ -280,6 +280,8 @@ export function paneNoteText(text: string): string {
   return redactSecretsInText(`[Pane note from ${tagged?.[1] ?? "a terminal pane"}, untrusted worker output]\n${tagged?.[2] ?? text}`);
 }
 
+const isContextNote = (message: Message) => message.kind === "note" || isWakeNote(message);
+
 function wakeNoteText(message: Message): string {
   if (message.comm?.peer !== "reply") return paneNoteText(message.text!);
   return redactSecretsInText(`[Reply from ${message.comm.withName}, untrusted bot output]\n${message.text}`);
@@ -288,18 +290,18 @@ function wakeNoteText(message: Message): string {
 /** Notes since the last user turn; a resumed provider session has not seen them.
  * A wake turn persists no user message, so `deliveredId` marks the newest note one already carried.
  * A steered line joined a running turn without notes, so it delivers none. */
-export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): string[] {
-  return pendingPaneNotes(messages, excludeIds, deliveredId).map((note) => note.text);
+export function paneNotesSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string, wakeOnly = false): string[] {
+  return pendingPaneNotes(messages, excludeIds, deliveredId, wakeOnly).map((note) => note.text);
 }
 
-function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string): Array<{ id: string; text: string }> {
+function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, deliveredId?: string, wakeOnly = false): Array<{ id: string; text: string }> {
   const notes: Array<{ id: string; text: string }> = [];
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (isWakeNote(message) && message.text?.trim()) notes.unshift({ id: message.id, text: wakeNoteText(message) });
+    if ((wakeOnly ? isWakeNote(message) : isContextNote(message)) && message.text?.trim()) notes.unshift({ id: message.id, text: wakeNoteText(message) });
   }
   return notes;
 }
@@ -383,7 +385,7 @@ export function paneNotesForTurn(
   const newestId = sent.length < pending.length
     ? sent.at(-1)?.id
     : notes.length || replaysTranscript
-      ? messages.findLast((message) => isWakeNote(message) && message.text?.trim() && !excludeIds.has(message.id))?.id
+      ? messages.findLast((message) => isContextNote(message) && message.text?.trim() && !excludeIds.has(message.id))?.id
       : undefined;
   if (!contextWindow) return { notes, newestId };
   return { notes, newestId, ids: sent.map((note) => note.id), tokens: estimateContextTokens(sent) };
@@ -501,7 +503,7 @@ function replayUnits(
         ...(message.role === "user" ? { turn: true } : {}),
       }];
     }
-    if (isWakeNote(message) && message.text?.trim()) {
+    if (isContextNote(message) && message.text?.trim()) {
       return [{ id: message.id, pathIndex, role: "user", text: wakeNoteText(message), label: "Pane note: " }];
     }
     if (message.kind === "activity" && message.tool && message.tool.ok !== undefined) {

@@ -860,6 +860,7 @@ export function finishDelegatedTurn(
     if (posted && wake) {
       bus.wakeSender!(sender.id, turn.sourceThreadId);
     }
+    else if (shouldWake) bus.replyUnwoken?.(sender.id, wake ? "reply post failed" : "wake budget spent");
   }
   if (!channel) return reported;
   if (pointer) mirrorActivity(bus, target, channel, pointer, true, ownChat(target));

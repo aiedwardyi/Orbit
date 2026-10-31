@@ -181,14 +181,16 @@ foreach ($uri in $uris) {
 }
 if ($failure) {
   if ($failure.Exception.Message -match 'timed out') {
-    [Console]::Error.WriteLine('orbit-msg: Wink did not answer in 10s')
-    exit 1
+    $line = 'orbit-msg: Wink did not answer in 10s'
+  } else {
+    # Windows PowerShell leaves ErrorDetails empty; the server's reason is still on the response stream.
+    $detail = $failure.ErrorDetails.Message
+    if (-not $detail) { $detail = try { (New-Object IO.StreamReader($failure.Exception.Response.GetResponseStream())).ReadToEnd() } catch { $null } }
+    $reason = try { ($detail | ConvertFrom-Json).error } catch { $null }
+    $line = "orbit-msg: $(if ($reason) { $reason } else { $failure.Exception.Message })"
   }
-  # Windows PowerShell leaves ErrorDetails empty; the server's reason is still on the response stream.
-  $detail = $failure.ErrorDetails.Message
-  if (-not $detail) { $detail = try { (New-Object IO.StreamReader($failure.Exception.Response.GetResponseStream())).ReadToEnd() } catch { $null } }
-  $reason = try { ($detail | ConvertFrom-Json).error } catch { $null }
-  [Console]::Error.WriteLine("orbit-msg: $(if ($reason) { $reason } else { $failure.Exception.Message })")
+  if ($report -and $env:ORBIT_REPORT_SIGNAL) { try { [IO.File]::WriteAllText($env:ORBIT_REPORT_SIGNAL, $line) } catch {} }
+  [Console]::Error.WriteLine($line)
   exit 1
 }
 `;

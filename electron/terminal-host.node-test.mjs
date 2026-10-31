@@ -2799,6 +2799,125 @@ test("a report stops pending STALLED repeats", async (t) => {
   assert.equal(f.notes.length, 1);
 });
 
+const stallThrice = async (f) => {
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  for (const minutes of [31, 31, 61]) await f.advance(minutes * 60_000);
+  assert.equal(f.notes.length, 3);
+};
+
+test("a worker still stuck 10 minutes after its third STALLED note sends one stalled snag", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await stallThrice(f);
+  await f.advance(10 * 60_000 - 1);
+  assert.equal(snags.length, 0);
+  await f.advance(1);
+  assert.equal(snags.length, 1);
+  const { tail, ...rest } = snags[0];
+  assert.deepEqual(rest, {
+    event: "stalled", key: f.children[0].options.env.ORBIT_PANE, bot: "bot-1", worker: "claude", pane: f.children[0].options.env.ORBIT_PANE, label: "W",
+    detail: "3 STALLED notes, no screen change or report since", minutes: 133, notes: [["stalled", 102], ["stalled", 71], ["stalled", 10]],
+  });
+  assert.match(tail, /bypass permissions on/);
+  await f.advance(240 * 60_000);
+  assert.equal(snags.length, 1);
+});
+
+test("a report or a screen change after the third STALLED note sends no snag", async (t) => {
+  for (const settle of ["report", "screen"]) {
+    const snags = [];
+    const f = stallFixture({ snag: (snag) => snags.push(snag) });
+    t.after(() => f.host.dispose());
+    await stallThrice(f);
+    if (settle === "report") f.host.attendBot("bot-1", f.children[0].options.env.ORBIT_PANE, "report");
+    else f.children[0].data(claudeIdle("1 shell").replace("Brewed", "Checked"));
+    await f.advance(20 * 60_000);
+    assert.deepEqual(snags, [], settle);
+  }
+});
+
+test("a STALLED note that fails five times sends a note-lost snag", async (t) => {
+  const snags = [];
+  const f = stallFixture({ failures: 99, snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data("■ You've hit your usage limit. Try again at 10:14 PM.\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  for (let i = 0; i < 3; i++) await f.advance(61_000);
+  assert.equal(snags.length, 0);
+  await f.advance(61_000);
+  assert.deepEqual(snags.map((snag) => [snag.event, snag.detail, snag.worker]), [["note-lost", "a STALLED note failed 5 times", "codex"]]);
+  assert.match(snags[0].tail, /usage limit/);
+});
+
+test("a successful retry before signal polling does not send a false note-lost snag", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "failed before retry");
+  fs.utimesSync(signal, new Date(Date.UTC(2026, 9, 4)), new Date(Date.UTC(2026, 9, 4)));
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(1000);
+  await f.advance(10 * 60_000);
+  assert.deepEqual(snags, []);
+});
+
+test("repeated report failures retain the earliest pending deadline", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "first failure");
+  await f.settle();
+  await f.advance(9 * 60_000);
+  fs.writeFileSync(signal, "second failure");
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(snags.map((s) => [s.event, s.detail]), [["note-lost", "first failure"]]);
+});
+
+test("a delayed signal uses the failure time instead of the polling time", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "delayed failure");
+  const failedAt = new Date(Date.UTC(2026, 9, 4) - 9 * 60_000);
+  fs.utimesSync(signal, failedAt, failedAt);
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(snags.map((s) => [s.event, s.detail]), [["note-lost", "delayed failure"]]);
+});
+
+test("a failed report with no later report sends a note-lost snag after 10 minutes", async (t) => {
+  for (const reported of [false, true]) {
+    const snags = [];
+    const f = stallFixture({ snag: (snag) => snags.push(snag) });
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+    assert.equal(signal, path.join(os.tmpdir(), `orbit-report-${pane.sessionId}`));
+    f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+    fs.writeFileSync(signal, "orbit-msg: Wink did not answer in 10s");
+    await f.settle();
+    assert.equal(fs.existsSync(signal), false);
+    if (reported) f.host.attendBot("bot-1", pane.sessionId, "report");
+    await f.advance(10 * 60_000);
+    assert.deepEqual(snags.map((snag) => [snag.event, snag.detail]), reported ? [] : [["note-lost", "orbit-msg: Wink did not answer in 10s"]]);
+  }
+});
+
 for (const jobs of ["1 shell", "2 shells, 1 monitor"]) {
   test(`a Claude running-shell footer stalls after 30 minutes despite status ticks: ${jobs}`, async (t) => {
     const f = stallFixture();

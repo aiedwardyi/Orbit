@@ -41,6 +41,8 @@ never sees the setup code, only the invite inside it.
 `--test`, with or without `--base`, signs a test mark into the invite: the PC it enrolls stays off the team page until it has been offline for 90 days.
 A `test <label> <ms>` line appended to `<dataDir>/team-sessions` marks a PC by hand.
 
+A team relay also takes stuck-worker reports from teammates' PCs for its owner (Wink version, engines, note times and the stuck pane's last 30 lines, scrubbed; never chats or attached files), and they follow each PC's error-report setting. They sit in `<dataDir>/team-snags` for at most 14 days.
+
 ## Enrollment signature
 
 `sig = Ed25519(pc key, UTF-8 JSON.stringify(["wink-relay-enroll/1", invite, pk]))`, base64url.

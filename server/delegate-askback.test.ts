@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getOrCreateChannel, type CommsBus } from "./comms-visibility.ts";
 import * as commsVisibility from "./comms-visibility.ts";
-import { claimAsk, clearAskBudget, clearDelegationWakeBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
+import { claimAsk, claimDelegationWake, clearAskBudget, clearDelegationWakeBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { DATA_DIR } from "./config.ts";
 import { paneNotesForTurn, paneNotesSinceLastUserTurn, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
 import { _resetPending, drainDelegations, finishDelegatedTurn, queueDelegation, type DelegatedTurn } from "./delegations.ts";
@@ -178,6 +178,23 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, true, "@Sender, another question?");
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledExactlyOnceWith(sender.id, expect.stringContaining("@Sender, another question?"));
+  });
+
+  it("reports an ask-back it could not wake the sender for", async () => {
+    const replyUnwoken = vi.fn();
+    bus.replyUnwoken = replyUnwoken;
+    vi.spyOn(commsVisibility, "postPeerReply").mockReturnValueOnce(false);
+    finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
+    expect(replyUnwoken).toHaveBeenCalledExactlyOnceWith(sender.id, "reply post failed");
+    queueDelegation(bus, sender, { toBotId: peer.id, message: "Try again", depth: 0 }, 1);
+    drainDelegations(bus, bus, sender.threadId, (toBotId, _text, _depth, sourceThreadId, channel, taskId, sourceBotId) => {
+      turn = { toBotId, sourceThreadId, channelId: channel?.id, taskId, sourceBotId };
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    while (claimDelegationWake(sender.threadId));
+    finishDelegatedTurn(bus, turn, true, "@Sender, which tag?");
+    expect(replyUnwoken).toHaveBeenLastCalledWith(sender.id, "wake budget spent");
+    expect(replyUnwoken).toHaveBeenCalledTimes(2);
   });
 
   it.each([true, false])("delivers to the original task after the sender switches tasks (terminal sharing: %s)", async (shareTerminalWithChat) => {

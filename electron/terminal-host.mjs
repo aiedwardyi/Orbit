@@ -35,6 +35,9 @@ const STALL_RETRY_MS = 60_000;
 const STALL_TRIES = 5;
 const STALL_REPEAT_MS = 30 * 60_000;
 const STALL_REPEATS = 2;
+// A worker still stuck this long after its last STALLED note, or after a failed report, goes to the team relay owner.
+const SNAG_AFTER_MS = 10 * 60_000;
+const SNAG_TAIL_LINES = 30;
 // A TUI repaints after a resize; that redraw is not the worker moving again.
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
@@ -420,7 +423,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null, botNames = async () => ({}) }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null, botNames = async () => ({}), snag = () => {} }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -529,6 +532,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     }, activityCoalesceMs);
     session.activityTimer.unref?.();
   };
+  const snagPane = (session, event, detail, extra = {}) => {
+    try {
+      const tail = session.screen.text().split("\n").slice(-SNAG_TAIL_LINES).join("\n").slice(-20_000);
+      snag({ event, key: session.id, bot: session.teacher, worker: session.engine ?? "", pane: session.id, label: session.label ?? "", detail: detail.slice(0, 300), tail, ...extra });
+    } catch {}
+  };
   // An infinite retryAt holds the next try while this one is in flight.
   const postNote = (session, note, text, settle) => {
     note.tries += 1;
@@ -536,7 +545,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
     void Promise.resolve().then(() => notePane(session.mail, scope, text)).then(() => settle(true), () => {
       note.retryAt = now() + STALL_RETRY_MS;
-      if (note.tries >= STALL_TRIES) settle(false);
+      if (note.tries < STALL_TRIES) return;
+      settle(false);
+      snagPane(session, "note-lost", `a pane note failed ${STALL_TRIES} times`);
     });
   };
   const typeIntoPane = (session, data) => {
@@ -594,6 +605,18 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
+      if (session.reportSignal && fs.existsSync(session.reportSignal)) {
+        try {
+          const failedAt = Math.min(at, fs.statSync(session.reportSignal).mtimeMs);
+          const detail = fs.readFileSync(session.reportSignal, "utf8");
+          if (session.reportAt < failedAt && (!session.reportLost || failedAt < session.reportLost.at)) session.reportLost = { at: failedAt, detail };
+          fs.unlinkSync(session.reportSignal);
+        } catch {}
+      }
+      if (session.reportLost && at - session.reportLost.at >= SNAG_AFTER_MS) {
+        if (session.reportAt < session.reportLost.at) snagPane(session, "note-lost", session.reportLost.detail);
+        session.reportLost = null;
+      }
       if (session.engine === "claude" && session.compactSignal && fs.existsSync(session.compactSignal)) {
         try {
           fs.unlinkSync(session.compactSignal);
@@ -650,6 +673,18 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallTries = 0;
           session.stallPosts = 0;
           session.stallRepeatAt = Infinity;
+          session.stallNotes = [];
+          session.stallSnagAt = Infinity;
+        }
+      }
+      if (at >= session.stallSnagAt) {
+        session.stallSnagAt = Infinity;
+        const last = session.stallNotes.at(-1);
+        if (session.reportAt < last) {
+          const minutes = (ms) => Math.round(ms / 60_000);
+          snagPane(session, "stalled", `${session.stallNotes.length} STALLED notes, no screen change or report since`, {
+            minutes: minutes(at - session.stallChangedAt), notes: session.stallNotes.map((noteAt) => ["stalled", minutes(at - noteAt)]),
+          });
         }
       }
       const capacity = session.engine === "codex" && codexCapacity(session.screen.snapshot({ maxScrollbackChars: 0 }));
@@ -682,13 +717,16 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (session.stallChangedAt !== stall) return;
         session.stallPosts += 1;
         session.stallRepeatAt = now() + STALL_REPEAT_MS * 2 ** (session.stallPosts - 1);
+        session.stallNotes.push(now());
+        if (session.stallPosts > STALL_REPEATS) session.stallSnagAt = now() + SNAG_AFTER_MS;
       };
       void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, elapsed, session.cwd, session.engine, session.cols))).then(delivered).catch(() => {
         // The mailbox can store the note and send its receipt even when the response is lost.
         if (session.stallReceiptAt >= sentAt) return delivered();
         if (limitKey) session.limitsNoted.delete(limitKey);
         // A LIMIT receipt raises noteAt, which stops the retry above.
-        if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
+        if (session.stallChangedAt !== stall) return;
+        if (session.stallTries >= STALL_TRIES) return snagPane(session, "note-lost", `a STALLED note failed ${STALL_TRIES} times`);
         session.stallFired = false;
         session.stallRetryAt = now() + STALL_RETRY_MS;
       });
@@ -769,6 +807,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         }
       }
       if (session.compactSignal) { try { fs.unlinkSync(session.compactSignal); } catch {} }
+      if (session.reportSignal) { try { fs.unlinkSync(session.reportSignal); } catch {} }
       if (sessions.get(session.id) === session) sessions.delete(session.id);
     })();
     return session.stopPromise;
@@ -954,7 +993,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // A pane without orbit-msg beats no pane at all.
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
     const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
-    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`) });
+    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`), ORBIT_REPORT_SIGNAL: path.join(os.tmpdir(), `orbit-report-${id}`) });
     const spawn = () => loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
       name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: paneEnv, useConptyDll: platform === "win32",
     });
@@ -969,8 +1008,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, stallReceiptAt: -Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, reportSignal: paneEnv.ORBIT_REPORT_SIGNAL ?? null, reportLost: null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, stallNotes: [], stallSnagAt: Infinity, stallReceiptAt: -Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       commandInputs: [], commandInput: "", commandUserInput: false, runningCommand: null, shellExecuting: false, historyId: null, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
@@ -1397,6 +1436,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
       if (session && kind === "report") {
         session.reportAt = now();
+        session.reportLost = null;
+        if (session.reportSignal) { try { fs.unlinkSync(session.reportSignal); } catch {} }
         if (session.runningCommand) session.runningCommand.reported = true;
         paneRuns?.reported(session.id);
         session.finished = [];
