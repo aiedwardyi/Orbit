@@ -59,4 +59,17 @@ describe("offscreen chat tail", () => {
     expect(offscreenLimit(thread(300, 290), 200, read, "m250")).toBe(200);
     expect(offscreenLimit(thread(300, 290), 200, read, "m299")).toBe(30);
   });
+
+  it("keeps the full page when the active path skips an older branch", () => {
+    const messages = thread(300, 290).map((message, i) => (i > 0 ? { ...message, parentId: `m${i - 1}` } : message));
+    messages[299] = { ...messages[299]!, parentId: "m150" };
+    expect(offscreenLimit(messages, 200, read, "m299")).toBe(200);
+  });
+
+  it("reaches past a compaction row to the newest previewable reply", () => {
+    const messages = thread(300, 280);
+    messages[260] = { ...reply(260), kind: "compaction", text: undefined };
+    for (let i = 261; i < 300; i++) messages[i] = { ...reply(i), kind: "activity" };
+    expect(offscreenLimit(messages, 200, read)).toBe(41);
+  });
 });

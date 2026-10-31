@@ -10,7 +10,8 @@ const isAsk = (message: Message) => message.kind === "options" && Boolean(messag
 const isOpenRequest = (message: Message) =>
   message.kind === "options" && Boolean(message.card?.requestId) && !message.card?.answered && !message.card?.dismissed;
 const isPreview = (message: Message) =>
-  !(message.role === "bot" && message.summarized) && message.kind !== "activity" && message.kind !== "screen";
+  !(message.role === "bot" && message.summarized) && message.kind !== "activity" && message.kind !== "screen"
+  && Boolean(message.text || (message.kind === "options" && message.card));
 
 /** Rows for a chat off screen: a short tail, reaching back to every row its sidebar row reads (glow, unread count, preview, worker status). */
 export function offscreenLimit(
@@ -19,9 +20,13 @@ export function offscreenLimit(
   chat: { unread?: boolean; readAt?: number },
   activeLeafId?: string | null,
 ): number {
-  // A switched-back branch can sit anywhere in insertion order, so keep the full page.
+  // A branched page's active path can sit anywhere in insertion order, so keep it whole.
   if (activeLeafId && activeLeafId !== messages.at(-1)?.id) return limit;
   const floor = Math.max(0, messages.length - limit);
+  for (let i = Math.max(1, floor); i < messages.length; i++) {
+    const parentId = messages[i]!.parentId;
+    if (parentId !== undefined && parentId !== messages[i - 1]!.id) return limit;
+  }
   let rows = Math.min(limit, OFFSCREEN_TAIL);
   let prompt = false, ask = false, user = false, preview = false, read = !chat.unread;
   for (let i = messages.length - 1; i >= floor; i--) {
