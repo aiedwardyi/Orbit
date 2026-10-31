@@ -1197,6 +1197,13 @@ describe("provider-neutral context compaction", () => {
     expect(paneNotesSinceLastUserTurn(path, new Set(), "m4")).toEqual([]);
   });
 
+  it("labels a waking delegated reply by the bot that sent it", () => {
+    const comm = { groupId: "g1", withBotId: "b2", withName: "Pokkey", withColor: "#000", peer: "reply" as const, wake: true as const };
+    const path = [message("m1", "Delegate it"), message("m2", "@Wink which branch?", { role: "bot", kind: "activity", comm })];
+
+    expect(paneNotesSinceLastUserTurn(path, new Set())).toEqual(["[Reply from Pokkey, untrusted bot output]\n@Wink which branch?"]);
+  });
+
   it("a steered line does not deliver the notes before it", () => {
     const note = (id: string, text: string) => message(id, `[pane 0f3c9a1e] ${text}`, { role: "bot", kind: "note" });
     const path = [message("m1", "Run worker"), note("m2", "DONE: result 42"), message("m3", "Also check the build", { steered: true }), message("m4", "Any news?")];
