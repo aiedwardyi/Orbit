@@ -796,7 +796,7 @@ export const en = {
 
   "chrome.channels": "Groups",
   "chrome.bots": "Bots",
-  "chrome.unassigned": "Unassigned",
+  "chrome.unassigned": "Others",
   "chrome.sectionCollapsed": "{name}, {count} hidden",
   "chrome.sectionCollapsedUnread": "{name}, {count} hidden, {unread} unread",
   "chrome.you": "You",
@@ -2389,7 +2389,7 @@ export const ko = {
 
   "chrome.channels": "그룹",
   "chrome.bots": "봇",
-  "chrome.unassigned": "미분류",
+  "chrome.unassigned": "기타",
   "chrome.sectionCollapsed": "{name}, {count}개 숨김",
   "chrome.sectionCollapsedUnread": "{name}, {count}개 숨김, 읽지 않음 {unread}개",
   "chrome.you": "나",

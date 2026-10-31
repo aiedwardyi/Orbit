@@ -9,6 +9,7 @@ import {
   orderedSidebarItems,
   partitionSidebarItemKeys,
   preferredStartupSelectionId,
+  sectionIdFor,
   sidebarPriorityFor,
   sameSidebarOrder,
   sidebarItemKey,
@@ -17,6 +18,15 @@ import {
 import type { Message } from "@/state/store";
 
 describe("sidebar item order", () => {
+  it.each([undefined, "", "Others", " oTh ErS ", "기 타", "Unassigned", " un ASSIGNED ", "미 분 류"])("maps reserved section %s to the built-in bucket", (name) => {
+    expect(sectionIdFor(name)).toBe(UNASSIGNED_SECTION_ID);
+  });
+
+  it("keeps other section names", () => {
+    expect(sectionIdFor(" Work ")).toBe("section:Work");
+    expect(sectionIdFor("Others work")).toBe("section:Others work");
+  });
+
   it("partitions global priority tiers without duplicating both flags", () => {
     const partition = partitionSidebarItemKeys(
       ["section:Work", UNASSIGNED_SECTION_ID],
@@ -166,6 +176,11 @@ describe("listedSearchHits", () => {
 
 describe("preferredStartupSelectionId", () => {
   const EMPTY_ORDER = { sectionOrder: [], itemOrder: {} };
+
+  it("merges saved built-in labels before choosing the first row", () => {
+    const order = { sectionOrder: [UNASSIGNED_SECTION_ID], itemOrder: { [UNASSIGNED_SECTION_ID]: ["bot:career", "bot:a"] } };
+    expect(preferredStartupSelectionId([{ id: "a" }, { id: "career", section: "Others" }], [], order)).toBe("career");
+  });
 
   it("skips a bot-to-bot channel that leads the saved order", () => {
     const order = {
