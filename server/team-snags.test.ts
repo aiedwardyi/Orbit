@@ -216,7 +216,7 @@ describe("TeamSnags", () => {
 
 describe("pane wake failure", () => {
   it("reports a non-busy failure and not a busy one", () => {
-    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const body = source.match(/startTurn\(botId, PANE_WAKE_PROMPT[^\n]*\.catch\(\(err\) => \{\n([\s\S]+?)\n    \}\);/)![1];
     const javascript = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
     const run = new Function("err", "botId", "isBusyRejection", "paneWake", "console", "teamSnags", "threadId", javascript);
