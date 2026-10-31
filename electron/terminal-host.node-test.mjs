@@ -1630,6 +1630,10 @@ test("FINISHED fires once per command with the last screen lines", async (t) => 
   assert.equal(f.notes.length, 1);
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
   assert.equal(f.notes.length, 2);
 });
 
@@ -1641,6 +1645,7 @@ test("FINISHED is suppressed by a report only for that command", async (t) => {
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
@@ -1654,9 +1659,46 @@ test("FINISHED is cleared by a report that lands before delivery", async (t) => 
   f.host.attendBot("bot-1", pane.sessionId, "report");
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED skips a hand-typed command after a bot command reports DONE", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.write(f.event, pane.sessionId, "claude\r");
+  f.host.write(f.event, pane.sessionId, "/logout\r");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED skips hand-typed commands in an empty bot pane", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.host.write(f.event, pane.sessionId, "claude\r");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("FINISHED keeps a bot command when a person answers its prompt", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "script.ps1" });
+  f.host.write(f.event, pane.sessionId, "yes\r");
   f.children[0].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
@@ -1669,7 +1711,7 @@ test("FINISHED never fires for the main terminal", async (t) => {
   f.children[0].data(finishedMark({ sessionId: main.id }));
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[1].data(finishedMark(pane));
   await f.advance(10_000);
   assert.equal(f.notes.length, 1);
@@ -1678,11 +1720,12 @@ test("FINISHED never fires for the main terminal", async (t) => {
 test("FINISHED skips an explicit read after completion, not background reads", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data(finishedMark(pane));
   f.host.readBot("bot-1", { sessionId: pane.sessionId, observe: true });
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "pnpm build\r" });
   f.children[0].data(finishedMark(pane));
   f.host.readBot("bot-1", { sessionId: pane.sessionId });
   await f.advance(10_000);
@@ -1692,7 +1735,7 @@ test("FINISHED skips an explicit read after completion, not background reads", a
 test("FINISHED accepts split markers but ignores prompt text and foreign markers", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
-  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data(`PS C:\\> \r\n\x1b]133;D;foreign\x07\x1b]133;A;${pane.sessionId}\x07`);
   await f.advance(10_000);
   assert.equal(f.notes.length, 0);

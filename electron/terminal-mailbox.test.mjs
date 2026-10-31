@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -334,7 +334,7 @@ describe("installOrbitMsg", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
-      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-compact.ps1", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1", "orbit-status.ps1"]);
+      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-clean", "orbit-clean.cmd", "orbit-clean.ps1", "orbit-compact.ps1", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1", "orbit-status.ps1"]);
       const compact = readFileSync(path.join(bin, "orbit-compact.ps1"), "utf8");
       expect(compact).toMatch(/\r\n/);
       expect(compact).not.toMatch(/[^\r]\n/);
@@ -346,6 +346,8 @@ describe("installOrbitMsg", () => {
       expect(sh).toMatch(/^#!\/bin\/bash\n/);
       expect(sh).toContain("orbit-msg.ps1");
       expect(sh).not.toContain("\r");
+      expect(readFileSync(path.join(bin, "orbit-clean.cmd"), "utf8")).toContain('"%~dp0orbit-clean.ps1"');
+      expect(readFileSync(path.join(bin, "orbit-clean"), "utf8")).toContain('"$@"');
     } finally {
       await removeTempDir(dir);
     }
@@ -372,6 +374,7 @@ describe("installOrbitMsg", () => {
       const script = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(bin, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
       expect(JSON.parse(readFileSync(path.join(bin, "claude-worker.json"), "utf8"))).toEqual({
         autoCompactWindow: 300000,
+        permissions: { allow: ["Bash(orbit-clean:*)", "PowerShell(orbit-clean *)"] },
         statusLine: { type: "command", command: expect.stringContaining("orbit-status.ps1") },
         hooks: {
           Notification: [expect.any(Object)],
@@ -385,6 +388,78 @@ describe("installOrbitMsg", () => {
       await removeTempDir(dir);
     }
   });
+});
+
+describe.runIf(process.platform === "win32")("orbit-clean", () => {
+  async function cleanFixture() {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-clean-"));
+    const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+    const run = (args) => new Promise((resolve) => {
+      const child = execFile("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.join(bin, "orbit-clean.ps1"), ...args],
+        { env: { ...process.env, TEMP: dir }, encoding: "utf8", windowsHide: true },
+        (_error, stdout, stderr) => resolve({ status: child.exitCode, stdout, stderr }));
+      child.stdin.end();
+    });
+    return { dir, bin, run };
+  }
+
+  it("deletes only the named scratch directory and reports its size", async () => {
+    const f = await cleanFixture();
+    try {
+      const target = path.join(f.dir, "wink-CLEAN-1");
+      mkdirSync(path.join(target, "nested"), { recursive: true });
+      writeFileSync(path.join(target, "nested", "data"), "hello");
+      const sibling = path.join(f.dir, "wink-KEEP");
+      mkdirSync(sibling);
+      writeFileSync(path.join(sibling, "data"), "keep");
+      const result = await f.run(["CLEAN-1"]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`removed ${target} (5 bytes)`);
+      expect(existsSync(target)).toBe(false);
+      expect(readFileSync(path.join(sibling, "data"), "utf8")).toBe("keep");
+      expect(await f.run(["CLEAN-1"])).toMatchObject({ status: 0, stdout: expect.stringContaining("nothing to clean") });
+    } finally { await removeTempDir(f.dir); }
+  }, 30_000);
+
+  it("rejects invalid nicknames without touching disk", async () => {
+    const f = await cleanFixture();
+    try {
+      mkdirSync(path.join(f.dir, "wink-SAFE"));
+      const before = readdirSync(f.dir);
+      for (const args of [[], [""], [".."], ["*"], ["/"], ["\\"], ["lowercase"], ["../SAFE"], ["A.B"], ["-BAD"], ["A".repeat(65)], ["SAFE", "EXTRA"]]) {
+        expect(await f.run(args), JSON.stringify(args)).toMatchObject({ status: 1 });
+        expect(readdirSync(f.dir)).toEqual(before);
+      }
+    } finally { await removeTempDir(f.dir); }
+  }, 30_000);
+
+  it("unlinks nested junctions without deleting their sibling target", async () => {
+    const f = await cleanFixture();
+    try {
+      const target = path.join(f.dir, "wink-LINKS");
+      const outside = path.join(f.dir, "outside");
+      mkdirSync(path.join(target, "nested"), { recursive: true });
+      mkdirSync(outside);
+      writeFileSync(path.join(outside, "keep.txt"), "survives");
+      symlinkSync(outside, path.join(target, "nested", "junction"), "junction");
+      symlinkSync(target, path.join(target, "loop"), "junction");
+      expect(await f.run(["LINKS"])).toMatchObject({ status: 0, stdout: expect.stringContaining("(0 bytes)") });
+      expect(existsSync(target)).toBe(false);
+      expect(readFileSync(path.join(outside, "keep.txt"), "utf8")).toBe("survives");
+    } finally { await removeTempDir(f.dir); }
+  }, 30_000);
+
+  it("refuses a scratch root that is itself a junction", async () => {
+    const f = await cleanFixture();
+    try {
+      const outside = path.join(f.dir, "outside");
+      mkdirSync(outside);
+      writeFileSync(path.join(outside, "keep.txt"), "survives");
+      symlinkSync(outside, path.join(f.dir, "wink-ROOT"), "junction");
+      expect(await f.run(["ROOT"])).toMatchObject({ status: 1 });
+      expect(readFileSync(path.join(outside, "keep.txt"), "utf8")).toBe("survives");
+    } finally { await removeTempDir(f.dir); }
+  }, 30_000);
 });
 
 describe("mailbox grant", () => {
