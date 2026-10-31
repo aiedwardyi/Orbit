@@ -87,6 +87,7 @@ import {
 } from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
 import { isKnownSkin, readPersistedSkin, skinChrome, skinThemeSource, writePersistedSkin } from "./skin-overlay.cjs";
+import { setModelPickerBackground } from "./picker-background.mjs";
 import {
   readPreference as readLocalePreference,
   resolveLocale as resolveUiLocale,
@@ -2079,6 +2080,11 @@ ipcMain.handle("desktop:skin", (event, skin) => {
   if (process.platform === "win32") applyWindowsTitleBarOverlay(win, chrome);
   if (!win.isVisible()) win.show();
   return true;
+});
+
+ipcMain.handle("desktop:model-picker-background", (event, view) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return win === mainWindow && setModelPickerBackground(win, view);
 });
 
 ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {

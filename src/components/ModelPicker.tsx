@@ -63,6 +63,11 @@ export function ModelPickerControl({
   const dialFits = useModelDialFits(dial);
   const [listView, setListView] = useState(() => loadModelPickerView() === "list");
   const dialView = dial && dialFits && !listView;
+  useEffect(() => {
+    if (!presence.mounted) return;
+    void window.ogb?.setModelPickerBackground?.(dialView ? "dial" : "list")?.catch(() => undefined);
+    return () => { void window.ogb?.setModelPickerBackground?.(null)?.catch(() => undefined); };
+  }, [presence.mounted, dialView]);
   const dialRef = useRef<ModelDialHandle>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -227,13 +232,15 @@ export function ModelPickerControl({
     if (!open) return;
     const stage = stageRef.current!;
     const resize = () => setStageWidth(stage.getBoundingClientRect().width);
-    resize();
-    const observer = new window.ResizeObserver(resize);
-    observer.observe(stage);
+    if (!dialView) resize();
+    const observer = dialView ? null : new window.ResizeObserver(([entry]) => {
+      if (entry) setStageWidth(entry.contentRect.width);
+    });
+    observer?.observe(stage);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       document.body.style.overflow = overflow;
     };
   }, [open, dialView]);

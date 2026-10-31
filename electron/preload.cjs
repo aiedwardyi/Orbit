@@ -176,6 +176,7 @@ contextBridge.exposeInMainWorld("ogb", {
   /** Tell the window which skin the page wears, so the native chrome the
    * renderer cannot paint (the Windows caption-button overlay) matches. */
   applySkin: (skin) => ipcRenderer.invoke("desktop:skin", skin),
+  setModelPickerBackground: (view) => ipcRenderer.invoke("desktop:model-picker-background", view),
   /** Installed app version, from the main process. */
   getAppVersion: () => ipcRenderer.invoke("desktop:app-version"),
   startFresh: () => ipcRenderer.invoke("desktop:start-fresh"),

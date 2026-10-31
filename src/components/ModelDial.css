@@ -10,11 +10,13 @@
   position: absolute;
   inset: 0;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   overflow: hidden;
   background: #050608;
   color: var(--ink);
 }
+.model-cross-backdrop:has(.model-dial) { background: #050608; backdrop-filter: none; }
 .model-dial :where(button) { margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .model-dial button:focus-visible { outline: 2px solid #f3f4fa; outline-offset: 3px; }
 
@@ -37,6 +39,7 @@
   user-select: none;
 }
 .dial-stage[data-boot], .dial-stage[data-boot] * { transition: none !important; animation: none !important; }
+.dial-stage:not([data-phone]) { transform: scale(min(calc(100vw / 1440px), calc(100vh / 900px))); will-change: transform; }
 .dial-layer { position: absolute; inset: 0; }
 .dial-mark, .dial-mark * { display: block; fill: currentColor; overflow: visible; }
 

@@ -49,6 +49,7 @@ import {
 
 import { InitialsAvatar, profileInitials } from "./Avatar";
 import { useManualCheck, useUpdaterState } from "@/lib/updater";
+import { useSidebarViewportWidth } from "@/lib/sidebar-viewport";
 import { cn } from "@/lib/cn";
 import { showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import { showSidebarDensityControls, showSidebarPhone, showSidebarRoutines, showSidebarTeachSkill } from "@/lib/friends-chrome";
@@ -710,18 +711,13 @@ export function Sidebar({
   const asideRef = useRef<HTMLElement>(null);
   const sidebarGhostRef = useRef<HTMLDivElement>(null);
   const shownSidebarWidth = useRef(0);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
   // Bot details docks beside the chat above the breakpoint and takes width from it.
   const dockedAsideWidth = dockedDetailsWidth(
     state.settingsOpen,
     state.groups.some((g) => g.id === state.selectedId),
     state.bots.length,
   );
+  const viewportWidth = useSidebarViewportWidth(dockedAsideWidth);
   const sidebarDisplayWidth = displaySidebarWidth({
     collapsed: sidebarCollapsed,
     width: !sidebarCollapsed && density === "icons" ? SIDEBAR_ICONS_WIDTH : fitSidebarWidth(sidebarWidth, viewportWidth, dockedAsideWidth),
