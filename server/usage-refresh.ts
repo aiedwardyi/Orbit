@@ -813,7 +813,7 @@ export function createUsageRefresh(deps: {
   const mintedByPath = new Map<string, { accessToken: string; refreshToken: string }>();
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
-  const claudeReads = new Map<string, { retryAt: number; limited: number; pending: Promise<RateLimitWindow[]> }>();
+  const claudeReads = new Map<string, { retryAt: number; limited: number; pending: Promise<Report> }>();
   const skipped = new Set<string>();
   const skipWindow = (name: string, id: string) => {
     if (skipped.has(`${name}:${id}`)) return;
@@ -873,7 +873,7 @@ export function createUsageRefresh(deps: {
           let shared = claudeReads.get(credential);
           if (!shared || clock() >= shared.retryAt) {
             const limited = shared?.limited ?? 0;
-            const entry = { retryAt, limited: 0, pending: Promise.resolve<RateLimitWindow[]>([]) };
+            const entry = { retryAt, limited: 0, pending: Promise.resolve<Report>({ windows: [], observedAt: "" }) };
             entry.pending = (async () => {
               const response = envToken
                 ? await request(CLAUDE_USAGE_URL, { headers: [["Authorization", `Bearer ${envToken}`], ["anthropic-beta", "oauth-2025-04-20"]], redirect: "error", signal: AbortSignal.timeout(15_000) })
@@ -887,16 +887,20 @@ export function createUsageRefresh(deps: {
               if (response.status === 401 || response.status === 403) throw new Error("signin");
               if (!response.ok) throw new Error("refresh");
               const usage = oauthUsage.parse(await response.json());
-              return Object.entries(usage).filter(([id]) => id === "five_hour" || id.startsWith("seven_day")).flatMap(([id, value]) => {
+              const found = Object.entries(usage).filter(([id]) => id === "five_hour" || id.startsWith("seven_day")).flatMap(([id, value]) => {
                 const parsed = oauthWindow.nullable().safeParse(value);
                 if (!parsed.success) { skipWindow(name, id); return []; }
                 const window = parsed.data;
                 return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
               });
+              return { windows: found, observedAt: new Date(clock()).toISOString() };
             })();
             claudeReads.set(credential, shared = entry);
           }
-          windows = await shared.pending;
+          // A shared read keeps its own time, so a newer report from a turn is not overwritten by it.
+          const latest = await shared.pending;
+          windows = latest.windows;
+          observedAt = latest.observedAt;
         }
         if (!windows.length) throw new Error("refresh");
         const report = { windows, observedAt: observedAt ?? new Date(clock()).toISOString() };
