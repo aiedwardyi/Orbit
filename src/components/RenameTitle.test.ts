@@ -5,6 +5,18 @@ import { describe, expect, it, vi } from "vitest";
 import { RenameTitle } from "./RenameTitle";
 
 describe("RenameTitle", () => {
+  it("keeps the profile name button without the pencil", () => {
+    const markup = renderToStaticMarkup(createElement(RenameTitle, {
+      value: "Maus",
+      onCommit: vi.fn(),
+      onActivate: vi.fn(),
+    }));
+
+    expect(markup).toContain("Open Maus&#x27;s profile");
+    expect(markup.match(/<button/g)).toHaveLength(1);
+    expect(markup).not.toContain("lucide-pencil");
+  });
+
   it("does not expose an inert profile button when onActivate is absent", () => {
     const markup = renderToStaticMarkup(createElement(RenameTitle, {
       value: "Maus",

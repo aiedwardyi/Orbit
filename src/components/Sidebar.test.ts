@@ -31,6 +31,11 @@ vi.mock("@/lib/phone-swipe", async (importOriginal) => ({
   isPhone: () => true,
 }));
 
+vi.mock("@/lib/friends-chrome", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/friends-chrome")>()),
+  showPhoneDrawerCollapse: vi.fn(() => true),
+}));
+
 class FakeEventSource {
   static current: FakeEventSource | null = null;
   onmessage: ((event: { data: string; lastEventId: string }) => void) | null = null;
@@ -487,7 +492,7 @@ describe("Sidebar priority ordering", () => {
   });
 });
 
-describe("Sidebar layout controls", () => {
+describe("Sidebar layout controls with phone collapse restored", () => {
   it("toggles the persisted icon rail while restoring the saved labeled width", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, "360");
@@ -1712,7 +1717,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("shows Working without preview text while the bot is busy", async () => {
+  it("keeps Working beside the model line on phone without preview text", async () => {
     const worker = {
       ...bot("worker"),
       busy: true,
@@ -1724,6 +1729,9 @@ describe("Sidebar bot second line", () => {
     try {
       await vi.waitFor(() => expect(host.textContent).toContain("Meta Muse 1.3"), { timeout: 5000 });
       expect(host.textContent).toContain("Working");
+      const modelRow = host.querySelector("[data-sidebar-model-row]");
+      expect(modelRow?.textContent).toContain("Working");
+      expect(modelRow?.querySelector("[data-sidebar-model-label]")).not.toBeNull();
       expect(host.textContent).not.toContain("Giraffe preview sentence");
     } finally {
       await act(async () => root.unmount());
@@ -1731,7 +1739,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("puts Chief of Staff above a readable compact model label", async () => {
+  it("puts the Chief crown beside the name above a readable compact model label", async () => {
     const chief = {
       ...bot("chief"),
       chiefOfStaff: true,
@@ -1742,8 +1750,11 @@ describe("Sidebar bot second line", () => {
       await vi.waitFor(() => expect(host.querySelector("[data-sidebar-model-label]")).not.toBeNull(), { timeout: 5000 });
       const title = host.querySelector("[data-sidebar-chief-title]");
       const model = host.querySelector("[data-sidebar-model-label]");
-      expect(title?.textContent).toContain("Chief of Staff");
-      expect(title?.parentElement?.querySelector("[data-sidebar-model-row]")).toBe(model?.parentElement);
+      expect(title?.textContent).toBe("");
+      expect(title?.getAttribute("aria-label")).toBe("Chief of Staff");
+      expect(title?.getAttribute("title")).toBe("Chief of Staff");
+      expect(title?.parentElement?.textContent).toBe("chief");
+      expect(title?.parentElement?.querySelector("[data-sidebar-model-row]")).toBeNull();
       expect(model?.textContent).toBe("Meta Muse 1.3 Cont.");
       expect(host.textContent).not.toContain("Contributor");
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");

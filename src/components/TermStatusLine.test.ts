@@ -74,7 +74,7 @@ describe("TermStatusLine", () => {
     const age = button.getAttribute("aria-describedby");
     expect(age).toBeTruthy();
     expect(host.querySelector('[id="' + age + '"]')?.textContent).toBe("Last seen 4d ago");
-    expect(button.getAttribute("aria-label")).toBe("Open usage settings");
+    expect(button.getAttribute("aria-label")).toBe("Open Usage Settings");
   });
 
   it("discloses a fresh Muse reading without muting it", async () => {

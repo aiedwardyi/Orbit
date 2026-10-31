@@ -9,6 +9,7 @@ import { isEmptyEngineLaunch, isFriendsCliEngine } from "@/lib/engine-rail";
 import { EngineConnect } from "./EngineConnect";
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
+import { showWelcomeTiles } from "@/lib/friends-chrome";
 import { ProviderMark } from "./ProviderIcons";
 
 const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex"]);
@@ -235,11 +236,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <p className="mt-1.5 max-w-[420px] text-center text-[13.5px] leading-relaxed text-ink-secondary">
               {t("onboarding.welcomeBody")}
             </p>
-            <div className="mt-6 grid w-full grid-cols-3 gap-2.5">
-              <Principle icon={<TerminalSquare size={14} />} title={t("onboarding.principle.engines.title")} text={t("onboarding.principle.engines.text")} />
-              <Principle icon={<LockKeyhole size={14} />} title={t("onboarding.principle.local.title")} text={t("onboarding.principle.local.text")} />
-              <Principle icon={<Sparkles size={14} />} title={t("onboarding.principle.teammates.title")} text={t("onboarding.principle.teammates.text")} />
-            </div>
+            {showWelcomeTiles() && (
+              <div className="mt-6 grid w-full grid-cols-3 gap-2.5">
+                <Principle icon={<TerminalSquare size={14} />} title={t("onboarding.principle.engines.title")} text={t("onboarding.principle.engines.text")} />
+                <Principle icon={<LockKeyhole size={14} />} title={t("onboarding.principle.local.title")} text={t("onboarding.principle.local.text")} />
+                <Principle icon={<Sparkles size={14} />} title={t("onboarding.principle.teammates.title")} text={t("onboarding.principle.teammates.text")} />
+              </div>
+            )}
             {instancesError && (
               <div role="alert" className="mt-4 w-full rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
                 {instancesError} {t("onboarding.enginesErrorHint")}

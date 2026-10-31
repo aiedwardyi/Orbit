@@ -118,7 +118,7 @@ function EnginePlanRow({
                   </span>
                 ) : (
                   <>
-                    <PlanWindowMeter window={window} now={now} compact muted={reading?.stale || limited} />
+                    <PlanWindowMeter window={window} now={now} compact showReset muted={reading?.stale || limited} />
                     {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
                   </>
                 )}

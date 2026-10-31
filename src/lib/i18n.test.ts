@@ -19,6 +19,11 @@ import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it("keeps English effort chips short and Korean effort explicit", () => {
+  expect(translate("en", "model.effortChip", { level: "Medium" })).toBe("Medium");
+  expect(translate("ko", "model.effortChip", { level: "중간" })).toBe("추론 중간");
+});
+
 it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "notSignedIn", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "signOut", "notInstalled", "install"])("translates engine login %s", (name) => {
   const key = `engines.${name}` as MessageKey;
   expect(en[key]).toBeTruthy();
@@ -164,8 +169,8 @@ describe("catalogs", () => {
 
   it("substitutes template values across different runtime values", () => {
     const phrases = [
-      ["composer.roomLead", "{name}에 메시지 — 응답 담당: {lead}"],
-      ["room.hint.lead", "기본 응답 담당: {name}. 다른 봇을 고르려면 @로 언급하세요."],
+      ["composer.roomLead", "{name}에 메시지"],
+      ["room.hint.lead", "답변할 봇을 고르려면 @로 언급하세요."],
       ["chat.conversationAria", "대화 상대: {name}"],
       ["settings.noMatch", "“{query}” 검색 결과가 없습니다"],
       ["palette.noMatch", "“{query}” 검색 결과가 없습니다"],
@@ -304,7 +309,7 @@ describe("complete phrases", () => {
     expect(ko["composer.roomLead"]).not.toMatch(/responds$|Message \{name\}/i);
     expect(ko["composer.roomDm"]).not.toMatch(/continue the conversation|Message \{name\}/i);
     expect(ko["composer.roomEveryone"]).toContain("{name}");
-    expect(ko["composer.roomLead"]).toContain("{lead}");
+    expect(ko["composer.roomLead"]).toContain("{name}");
   });
 
   it("does not append an English bot-maintained fragment", () => {
@@ -1005,7 +1010,7 @@ describe("plan usage", () => {
     expect(usageSection).toContain('"usage.limits.cachedAsOf"');
     expect(usageSection).not.toContain('"usage.limits.unavailable"');
     expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");
-    expect(planUsageBar).toContain("t(compactReset.key, compactReset.vars)");
+    expect(planUsageBar).toContain("showReset && resetCompact(window.resetsAt, now)");
     expect(usageSection).not.toMatch(/Resets in/);
     expect(planUsageBar).not.toMatch(/Resets in/);
     expect(usageSection).not.toMatch(/% used/);

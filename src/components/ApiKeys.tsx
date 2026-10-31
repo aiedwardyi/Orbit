@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
 import { useBackLayer } from "@/lib/use-back-layer";
+import { showEmptyKeysCard } from "@/lib/friends-chrome";
 import { Section } from "./SettingsPrimitives";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -339,6 +340,8 @@ export function SavedKeys() {
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
       .catch((e) => setError(credentialErrorMessage(e, t)));
   };
+
+  if (saved.length === 0 && !showEmptyKeysCard()) return null;
 
   return (
     <Section title={t("keys.title")}>

@@ -31,19 +31,22 @@ function ChatPlanMetersLive({ windows, driverKind, observedAt, now, onOpenUsage 
   const ageId = useId();
   if (visible.length === 0) return null;
   return (
-    <button
-      type="button"
-      onClick={onOpenUsage}
-      className="w-full cursor-pointer px-5 pb-1 text-left"
-      aria-label={t("usage.limits.openAria")}
-      aria-describedby={reading?.stale ? ageId : undefined}
-    >
-      <div className={cn("grid w-full items-center gap-x-6", visible.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+    <div data-chat-plan-meters="" className="w-full px-5 pb-1">
+      <div className={cn("grid w-full items-center gap-x-6 max-md:gap-x-3", visible.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
         {visible.map((window) => (
-          <PlanWindowMeter key={window.id} window={window} now={clock} compact muted={reading?.stale} />
+          <button
+            key={window.id}
+            type="button"
+            onClick={onOpenUsage}
+            className="w-full min-w-0 cursor-pointer text-left"
+            aria-label={t("usage.limits.openAria")}
+            aria-describedby={reading?.stale ? ageId : undefined}
+          >
+            <PlanWindowMeter window={window} now={clock} compact showReset={false} muted={reading?.stale} />
+          </button>
         ))}
       </div>
       {reading?.stale && <div id={ageId} className="text-[12px] text-ink-secondary">{reading.label(t)}</div>}
-    </button>
+    </div>
   );
 }

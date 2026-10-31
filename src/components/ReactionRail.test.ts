@@ -37,13 +37,16 @@ describe("reaction rail", () => {
     expect(sources["GroupView.tsx"]).toMatch(/<ReactionChips\s+threadId=\{group\.threadId\}/);
   });
 
-  it("renders chips inside the message body, on the inner bottom corner", () => {
+  it("renders chips inside the message body", () => {
     for (const file of ["ChatBubble.tsx", "GroupView.tsx"] as const) {
       const src = sources[file];
       const body = src.slice(src.indexOf("data-orbit-message-body"), src.indexOf("{optionChoices && ("));
       expect(body).toContain("<ReactionChips");
-      expect(body).toContain('corner={user ? "left" : "right"}');
     }
+  });
+
+  it("anchors chat chips to the bot's left and user's right corner", () => {
+    expect(sources["ChatBubble.tsx"]).toContain('corner={user ? "right" : "left"}');
   });
 
   it("folds copy, reply, pin, and regenerate into one horizontal hover row", () => {

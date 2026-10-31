@@ -158,6 +158,12 @@ describe("UsageSection friends plan card", () => {
     expect(muse).toBeGreaterThan(grok);
   });
 
+  it("keeps bracketed reset countdowns beside compact plan meters", () => {
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(html).toContain("(1h)");
+    expect(html).toContain("(6d)");
+  });
+
   it("lists only engines this PC has installed or has a reading for", () => {
     const previous = mockState.instances;
     const missing = { snapshot: { state: "unavailable" as const } };

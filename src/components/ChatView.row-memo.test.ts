@@ -126,7 +126,7 @@ describe("ChatView settled rows", () => {
       const pinned = bubbleHooks(view.host);
       expect(pinned.get("u1")).not.toBe(reacted.get("u1"));
       for (const id of ["b1", "u2", "b2"]) expect(pinned.get(id), id).toBe(reacted.get(id));
-      expect(view.host.querySelector('[data-mid="u1"] button[aria-pressed="true"]')).not.toBeNull();
+      expect(view.host.querySelector('[title="Jump to the pinned message"]')?.textContent).toContain("First question");
     } finally {
       await view.unmount();
     }

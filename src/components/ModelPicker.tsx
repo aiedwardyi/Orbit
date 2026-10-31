@@ -16,6 +16,7 @@ import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { modelDialEnabled } from "@/lib/feature-flags";
+import { showTouchPickerLegend } from "@/lib/friends-chrome";
 import { ModelDial, useModelDialFits, type ModelDialHandle } from "./ModelDial";
 import "./ModelPicker.css";
 
@@ -294,6 +295,7 @@ export function ModelPickerControl({
         aria-describedby={bindingsId}
         tabIndex={-1}
         className="model-cross-dialog"
+        data-touch-picker-legend={!dial && !showTouchPickerLegend() ? "hidden" : undefined}
         onKeyDown={(event) => {
           // focus lingers in the fading dialog for a frame; let Alt+M through to reopen it
           if (presence.closing) return;
@@ -416,8 +418,8 @@ export function ModelPickerControl({
         </div>
         <div className="model-cross-options">
           <div aria-live="polite" className="flex min-w-0 flex-wrap items-center justify-center gap-2 text-xs text-ink-secondary">
-            <span>{t("model.automatic")}</span>
-            <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
+            <span data-picker-current-model>{t("model.automatic")}</span>
+            <span data-picker-current-model className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
             {effortIndex >= 0 && <span>{t("model.effort")}: {effortLabel(efforts[effortIndex]!.label)}</span>}
             {price && <span data-model-price className="shrink-0 whitespace-nowrap" title={t("model.priceUnits")}>{price} {t("model.pricePerMillion")}</span>}
             {!instance && <span>{t("model.offList")}</span>}
@@ -434,9 +436,9 @@ export function ModelPickerControl({
           </div>}
         </div>
         <footer className="model-cross-footer" id={bindingsId}>
-          <span className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>M</kbd>{t("model.close")}</span>
-          <span className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
-          <span className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
+          <span data-picker-key-legend className="model-cross-binding"><kbd>{shortcut}</kbd><kbd>M</kbd>{t("model.close")}</span>
+          <span data-picker-key-legend className="model-cross-binding"><kbd>↑</kbd><kbd>↓</kbd>{t("model.engineAxis")}</span>
+          <span data-picker-key-legend className="model-cross-binding"><kbd>←</kbd><kbd>→</kbd>{t("model.modelAxis")}</span>
           <button type="button" disabled={!canSave} className="model-cross-binding" onClick={() => save()}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
           <button data-picker-action type="button" className="model-cross-binding" onClick={close}><kbd>Esc</kbd>{t("createBot.cancel")}</button>
         </footer>

@@ -40,7 +40,7 @@ import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReconnectingCue } from "./ReconnectingCue";
 import { GroupTaskPicker } from "./TaskPicker";
-import { showChannelCallControl, showChannelNewTaskControl } from "@/lib/friends-chrome";
+import { showChannelCallControl, showChannelNewTaskControl, showHoverPin } from "@/lib/friends-chrome";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -581,7 +581,7 @@ export const Transcript = memo(function Transcript({
                     >
                       <MessageSquareReply size={14} />
                     </button>
-                    <PinToggle group={group} message={m} />
+                    {showHoverPin() && <PinToggle group={group} message={m} />}
                   </div>
                 )}
                 <div
@@ -622,7 +622,7 @@ export const Transcript = memo(function Transcript({
                     >
                       <MessageSquareReply size={14} />
                     </button>
-                    <PinToggle group={group} message={m} />
+                    {showHoverPin() && <PinToggle group={group} message={m} />}
                   </div>
                 )}
                 <ReactionChips
@@ -815,9 +815,6 @@ function RoomWorkingFolder({ group }: { group: Group }) {
   );
 }
 
-/** The folder this room's turns run in — the pinned folder once a turn ran,
- * else the room folder a first turn would pin. Always labeled so the channel
- * has one clear shared project-folder control. */
 function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: () => void }) {
   const { t } = useI18n();
   const folder = group.pinnedCwd === undefined ? group.cwd : (group.pinnedCwd ?? undefined);
@@ -827,9 +824,10 @@ function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: ()
       onClick={onToggle}
       className="flex min-w-0 max-w-[220px] shrink-[8] items-center max-md:shrink-0 gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
       title={folder ? t("room.workingFolderNamed", { folder }) : t("room.workingFolderChip")}
+      aria-label={folder ? t("room.workingFolderNamed", { folder }) : t("room.projectFolderChip")}
     >
       <Folder size={12} className="shrink-0" />
-      <span className={cn("truncate max-md:hidden", folder && "font-mono")}>{name}</span>
+      {folder && <span className="truncate font-mono max-md:hidden">{name}</span>}
     </button>
   );
 }
