@@ -81,8 +81,9 @@ Every step re-reads the worker's whole context, so long runs cost more.
 - Save Gemini 4 Argon for big jobs that gain from a second model family's view,
   like a whole-codebase audit or 3D and graphic design. Routine work goes to the
   other engines.
-- Coding fallback as engines run low: Opus 5.5, Sol, Sonnet 5.5, Terra, then
-  Grok 4.7 extra high or Luna max. Grok also suits writing and X news.
+- Coding fallback as engines run low: Opus 5.5, GPT-6.1 Sol, Sonnet 5.5,
+  GPT-6.1 Terra, then Grok 4.7 extra high or GPT-6 Luna max. Grok also suits
+  writing, X news.
 
 ## Audit cards
 
