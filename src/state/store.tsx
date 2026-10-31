@@ -2073,7 +2073,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const prefetchAbort = new AbortController();
-    let prefetchedChat: Promise<any> | null = api(`/api/bots?messages=${MESSAGE_PAGE}`, { signal: prefetchAbort.signal }).catch(() => null);
+    // Other chats come back as a short tail; ChatView pages the rest in when one opens.
+    const chatSnapshot = (signal?: AbortSignal) =>
+      api(`/api/bots?messages=${MESSAGE_PAGE}`, { signal, headers: { "x-open-chat": stateRef.current.selectedId } });
+    let prefetchedChat: Promise<any> | null = null;
+    let prefetchStarted = false;
     let snapshotBoundary: string | undefined;
     type PeripheralKey = "instances" | "config" | "routines" | "webhooks";
     type PeripheralPart = {
@@ -2178,7 +2182,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let snapshot = prefetch ? await prefetch : null;
         if (!alive || boundary !== snapshotBoundary) return;
         // No boundary means the no-hello fallback; there is nothing to validate.
-        if (boundary === undefined ? !snapshot : !snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await api(`/api/bots?messages=${MESSAGE_PAGE}`);
+        if (boundary === undefined ? !snapshot : !snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await chatSnapshot();
         if (!alive || boundary !== snapshotBoundary || rehydrateRequested) return;
         const { bots, groups, computerControl } = snapshot;
         rawDispatch({
@@ -2531,7 +2535,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     const stopLive = openLiveEvents({
-      onOpen: () => rawDispatch({ type: "connected", value: true }),
+      onOpen: () => {
+        rawDispatch({ type: "connected", value: true });
+        // Not before: over Tailscale Serve or the relay both share one pipe, and hello would queue behind the snapshot.
+        if (!prefetchStarted && !hydrated && !hydrationPromise) prefetchedChat = chatSnapshot(prefetchAbort.signal).catch(() => null);
+        prefetchStarted = true;
+      },
       onError: () => rawDispatch({ type: "connected", value: false }),
       onSnapshotRequired: (cursor) => {
         clearTimeout(hydrationFallback);

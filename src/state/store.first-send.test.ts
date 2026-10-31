@@ -3,11 +3,14 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { writeSnapshotCache } from "./snapshot-cache";
 import { StoreProvider, useStore, type Bot } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource;
+  onopen: (() => void) | null = null;
   onmessage: ((event: { data: string; lastEventId: string }) => void) | null = null;
+  opened = false;
   close = vi.fn();
   constructor() {
     FakeEventSource.last = this;
@@ -45,6 +48,10 @@ async function mount() {
     host.remove();
   };
   await act(async () => root.render(createElement(StoreProvider, null, createElement(Probe))));
+  await act(async () => {
+    FakeEventSource.last.opened = true;
+    FakeEventSource.last.onopen?.();
+  });
 }
 
 const bot = (name: string) => ({
@@ -77,6 +84,19 @@ describe("first-send hydration", () => {
     expect(store.state.bots[0].name).toBe(refetch ? "Fresh" : "Prefetched");
     await emit({ kind: "bot", bot: { ...bot("Live"), unread: false } }, "stream00:5");
     expect(store.state.bots[0].name).toBe("Live");
+  });
+
+  it("asks for the snapshot once the stream is open, naming the open chat", async () => {
+    writeSnapshotCache({ bots: [bot("Saved")], groups: [], selectedId: "b1" });
+    const earlier = FakeEventSource.last;
+    const reads: { streamOpen: boolean; openChat: string }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url) !== "/api/bots?messages=200") return Response.json({}, { status: 404 });
+      reads.push({ streamOpen: FakeEventSource.last !== earlier && FakeEventSource.last.opened, openChat: (init?.headers as Record<string, string>)["x-open-chat"] });
+      return Response.json({ bots: [bot("Prefetched")], groups: [], cursor: "stream00:4" });
+    }));
+    await mount();
+    expect(reads).toEqual([{ streamOpen: true, openChat: "b1" }]);
   });
 
   it("holds an early response beyond the fallback deadline until hello", async () => {
