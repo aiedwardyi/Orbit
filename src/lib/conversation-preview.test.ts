@@ -29,6 +29,13 @@ const bot = (messages: Message[], extra: Partial<Bot> = {}): Pick<Bot, "activity
 });
 
 describe("conversationPreview after first-turn ignore", () => {
+  it("skips three quiet worker replies in the sidebar preview", () => {
+    const visible: Message = { id: "last", at: 1, role: "bot", kind: "text", text: "The checks passed." };
+    const messages = [visible, ...[2, 3, 4].map((at): Message => ({ id: `quiet-${at}`, parentId: at === 2 ? "last" : `quiet-${at - 1}`, at, role: "bot", kind: "text", text: "·", hidden: true }))];
+    expect(conversationPreview(bot(messages))).toBe("The checks passed.");
+    expect(conversationPreview(bot([...messages, { id: "user", parentId: "quiet-4", at: 5, role: "user", kind: "text", text: "·" }]))).toBe("·");
+  });
+
   it("shows the open first-turn quiz title", () => {
     expect(conversationPreview(bot([quiz]))).toBe("What do you mostly want help with?");
   });

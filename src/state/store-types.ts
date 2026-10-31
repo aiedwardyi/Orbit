@@ -93,6 +93,7 @@ export interface Message {
   steered?: boolean;
   /** The engine replaced a longer mid-turn note with this short text. */
   summarized?: boolean;
+  hidden?: boolean;
   /** Client-only accepted send; replaced by the canonical transcript row. */
   placeholder?: true;
   streamWhole?: number;

@@ -11,6 +11,7 @@ import type { ProviderRegistry } from "./harness/registry.ts";
 import { json, readBody } from "./http-helpers.ts";
 import { resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import { hasPeerWatch, steerTakeover } from "./peer-takeover.ts";
+import { quietWakeTurns } from "./quiet-wake.ts";
 import { composeUserTurnPrompt, promptWithReply, userTurnReactionKeys } from "./replies.ts";
 import type { RoutineManager } from "./routines.ts";
 import { steersSend } from "./send-deliver.ts";
@@ -244,6 +245,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
               steered = await adapter
                 .steer(threadId, prompt, (taken, afterReply) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
+                  if (taken && !afterReply) quietWakeTurns.delete(threadId);
                   takeover.consumed(taken, afterReply);
                 }, { fromUser: true, peerTurn: hasPeerWatch(threadId) })
                 .catch(() => false);
@@ -278,6 +280,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
               takeover.accepted();
               // the user joined this turn, so its finish alerts
               paneNoteTurnThreads.delete(threadId);
+              quietWakeTurns.delete(threadId);
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",

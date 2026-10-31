@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptedSendMatch, parseSendId, SendSequencer, sendFingerprint } from "./send-idempotency.ts";
 import { steersSend } from "./send-deliver.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
+import { createQuietWakeTurns } from "./quiet-wake.ts";
 import * as queue from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
 
@@ -35,7 +36,10 @@ function harness(steer = vi.fn(async () => true)) {
   const noop = () => {};
   const interruptTurn = vi.fn(async () => {});
   const busyResumeThreads = new Set<string>();
+  const quietWakeTurns = createQuietWakeTurns();
+  quietWakeTurns.start(bot.threadId, { paneNoteWake: true }, []);
   const scope = {
+    quietWakeTurns,
     ...queue, acceptedSendMatch, parseSendId, sendFingerprint, steersSend, sendPostReceipt,
     store, startTurn, sendSequencer: new SendSequencer(), m: ["", bot.id], req: {}, res: {},
     readBody: async () => ({}), json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
@@ -53,7 +57,7 @@ function harness(steer = vi.fn(async () => true)) {
     return { text, sendId, queueId: held.id, threadId: bot.threadId };
   };
   const post = (body: object) => runPost({ ...scope, readBody: async () => body });
-  return { bot, messages, store, steer, startTurn, drain, drainRun, hold, post, interruptTurn, busyResumeThreads };
+  return { bot, messages, store, steer, startTurn, drain, drainRun, hold, post, interruptTurn, busyResumeThreads, quietWakeTurns };
 }
 
 describe("queued send through the message POST", () => {
@@ -71,6 +75,7 @@ describe("queued send through the message POST", () => {
     h.drain();
     expect(h.messages.map((m) => m.text)).toEqual(["second", "first", "third"]);
     expect(h.startTurn).not.toHaveBeenCalled();
+    expect(h.quietWakeTurns.hidden("thread", "·")).toBe(false);
   });
 
   it("keeps the original receipt and FIFO when the engine declines the steer", async () => {

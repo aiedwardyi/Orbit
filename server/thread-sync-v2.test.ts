@@ -62,6 +62,15 @@ async function converge(...peers: ThreadSyncV2[]): Promise<void> {
 }
 
 describe("thread sync v2", () => {
+  it("preserves a quiet reply through the existing unknown-row-field schema", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const row = msg("quiet", "·", { role: "bot", hidden: true });
+    await a.commit(scope, [{ kind: "row", value: row }]);
+    await converge(a, b);
+    expect(await rows(b)).toEqual([row]);
+  });
   it("tool detail passes existing sync validation and message-store parsing unchanged", async () => {
     const { buildToolDetail } = await import("../shared/tool-detail.ts");
     const { redactSecretsInText } = await import("./redact.ts");

@@ -159,6 +159,7 @@ export interface Message {
   steered?: boolean;
   /** The engine replaced a longer mid-turn note with this short text. */
   summarized?: boolean;
+  hidden?: boolean;
   /** screen messages: a frame of the bot's computer (base64 image) */
   png?: string;
   mime?: string;

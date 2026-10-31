@@ -228,6 +228,7 @@ import { foldContinuationStart } from "./continuation-turn.ts";
 import "./pending-model.ts";
 import { botClears, groupClears } from "./wire-clears.ts";
 import { ownTurnReply, turnAddedMessage, turnSummaries, turnUnread } from "./turn-reply.ts";
+import { quietWakeTurns } from "./quiet-wake.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
@@ -3058,6 +3059,7 @@ bus.subscribe((event: RuntimeEvent) => {
       watchdog.watch(threadId, botId);
       // a continuation is not the note turn
       paneNoteTurnThreads.delete(threadId);
+      quietWakeTurns.delete(threadId);
     },
     disown: (turnId) => disownedTurnIds.add(turnId),
   });
@@ -3200,7 +3202,8 @@ bus.subscribe((event: RuntimeEvent) => {
   ) {
     return;
   }
-  broadcast({ kind: "runtime", event });
+  const visibleEvent = quietWakeTurns.broadcast(event);
+  if (visibleEvent) broadcast({ kind: "runtime", event: visibleEvent });
   if (event.type === "turn.started") {
     markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "provider.started", { turnId: event.turnId });
   } else if (event.type === "content.delta") {
@@ -3266,11 +3269,12 @@ bus.subscribe((event: RuntimeEvent) => {
       if (event.itemType === "assistant_text") {
         // a peer turn's first shown text keeps its channel, so the Reply-to label survives a user row between ask and answer
         const stamp = takePeerReplyStamp(peerReplyComm, event.threadId, { text: event.text, summarized: event.summarized });
-        const message = pushMessage(
-          event.summarized
+        const message = pushMessage({
+          ...(event.summarized
             ? { role: "bot", kind: "text", text: event.text, summarized: true }
-            : { role: "bot", kind: "text", text: event.text, ...(stamp ? { comm: stamp } : {}) },
-        );
+            : { role: "bot", kind: "text", text: event.text, ...(stamp ? { comm: stamp } : {}) }),
+          ...(quietWakeTurns.hidden(event.threadId, event.text) ? { hidden: true } : {}),
+        });
         markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "assistant.persisted", {
           turnId: event.turnId,
           assistantMessageId: message.id,
@@ -3832,6 +3836,7 @@ bus.subscribe((event: RuntimeEvent) => {
           notify(
             buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, {
               paneNoteTurn: paneNoteTurnThreads.has(event.threadId),
+              hiddenReply: quietWakeTurns.hidden(event.threadId, reply),
             }),
             startedAt === undefined ? undefined : Date.now() - startedAt,
             routineRun,
@@ -3870,6 +3875,7 @@ bus.subscribe((event: RuntimeEvent) => {
       // channel that only ever shows requests is half a record. Mirror the
       // reply on success; mirror a failed/stopped terminal chip otherwise.
       finalizeDelegationWatch(event.threadId, event.ok, reply);
+      quietWakeTurns.delete(event.threadId);
       // group busy/unread settle in the group turn engine, which knows
       // whether more member turns are queued behind this one
       break;
@@ -4304,7 +4310,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Everything you write outside tool calls appears in the user's chat, so never write notes to yourself there (like 'Need X.' or a bare file name); just make the next tool call. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told. At a usage limit, say it plainly with the reset time if you know it. Never promise to resume on your own; the chat shows whether Wink will continue it.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Everything you write outside tool calls appears in the user's chat, so never write notes to yourself there (like 'Need X.' or a bare file name); just make the next tool call. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. On an automated wake with nothing new for the user, reply with just '·' and Wink hides it. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told. At a usage limit, say it plainly with the reset time if you know it. Never promise to resume on your own; the chat shows whether Wink will continue it.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -4932,6 +4938,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   else routineTurnThreads.delete(threadId);
   if (opts?.paneNoteWake === true && folded.length === 0) paneNoteTurnThreads.add(threadId);
   else paneNoteTurnThreads.delete(threadId);
+  quietWakeTurns.start(threadId, opts, folded);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
       replayed: replaysTranscript,
@@ -5297,6 +5304,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           takeOverPeerTurn(threadId);
           // the user joined this turn, so its finish alerts
           paneNoteTurnThreads.delete(threadId);
+          quietWakeTurns.delete(threadId);
         };
         foldLate();
         const notesPath = opensHostFiles(privateWorkspace) ? bot.projectNotes : undefined;
@@ -5585,7 +5593,7 @@ function syncRoutineRunToSource(run: RoutineRun): { threadId: string; messageId:
 
   // Merely queueing/running is ambient progress. Attention and terminal
   // states become unread in the conversation where the user asked for them.
-  if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {
+  if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status) && quietWakeTurns.routineUnread(run.threadId ?? sourceThreadId, run.status, run.output)) {
     if (source.group) store.patchGroup(source.group.id, { unread: true });
     else store.patchBot(source.bot.id, { unread: true });
   }
@@ -6221,6 +6229,7 @@ async function runClaimedGroupMemberTurn(
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame
   groupSpeakers.set(threadId, { botId: bot.id, name: bot.name, color: bot.color });
+  quietWakeTurns.startRoom(threadId, bot.id, Boolean(cardContinuation), routines?.listRuns() ?? []);
 
   const roster = group.memberIds
     .map((id) => store.bot(id))

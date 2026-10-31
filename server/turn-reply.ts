@@ -57,7 +57,7 @@ export function turnSummaries() {
 
 export function turnAddedMessage(messages: readonly Message[], start: number): boolean {
   return messages.slice(start).some((message) => {
-    if (message.role !== "bot" || message.summarized || message.kind === "compaction") return false;
+    if (message.role !== "bot" || message.summarized || message.hidden || message.kind === "compaction") return false;
     if (message.kind === "activity") {
       return Boolean(message.comm || message.tool?.ok === false || message.tool?.name.startsWith("error:") || message.tool?.name === "memory.save");
     }
