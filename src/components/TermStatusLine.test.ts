@@ -96,15 +96,10 @@ describe("TermStatusLine", () => {
       expect(status.querySelector("[data-term-model]")?.textContent).toBe(skin === "multiplexer" ? "Sonnet 4.6" : "◆ Sonnet 4.6");
       expect(status.textContent).not.toMatch(/Claude|Thinking|\/default|low|9999|summary|요약/);
       const button = status.querySelector("button")!;
-      expect(button.textContent).toContain(locale === "en" ? "7d" : "7일");
-      expect(button.textContent).toContain("29%");
-      expect(button.textContent).toContain(locale === "en" ? "(5d6h)" : "(5일 6시간)");
-      if (skin === "multiplexer") expect(button.textContent).not.toContain(locale === "en" ? "5h" : "5시간");
-      else {
-        expect(button.textContent).toContain(locale === "en" ? "5h" : "5시간");
-        expect(button.textContent).toContain("90%");
-        expect(button.textContent).toContain(locale === "en" ? "(1m)" : "(1분)");
-      }
+      const weekly = locale === "en" ? "7d 29% (5d6h)" : "7일 29% (5일 6시간)";
+      const session = locale === "en" ? "5h 90% (1m)" : "5시간 90% (1분)";
+      expect(button.textContent).toBe(skin === "multiplexer" ? weekly : `${session} │ ${weekly}`);
+      expect(status.querySelector("[data-term-bar]")).toBeNull();
       const tab = status.querySelector("[data-term-tab]");
       expect(tab?.textContent ?? null).toBe(skin === "multiplexer" ? `0:${current.name}*` : null);
       await act(async () => button.click());
@@ -163,26 +158,6 @@ describe("TermStatusLine", () => {
     expect(host.querySelector("button")?.textContent).toContain("(1m)");
   });
 
-  it("drops the graphic before the meter text and restores it when space returns", async () => {
-    const media = phoneMedia();
-    document.documentElement.dataset.skin = "multiplexer";
-    const natural = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(400);
-    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
-    const host = await render();
-    const status = host.querySelector("[data-term-status]")!;
-    expect(status.getAttribute("data-term-bars")).toBe("off");
-    expect(status.querySelector("button")?.textContent).toContain("29% (1m)");
-    natural.mockReturnValue(320);
-    await act(async () => window.dispatchEvent(new Event("resize")));
-    expect(status.hasAttribute("data-term-bars")).toBe(false);
-    natural.mockReturnValue(400);
-    await act(async () => window.dispatchEvent(new Event("resize")));
-    vi.spyOn(media, "matches", "get").mockReturnValue(false);
-    await act(async () => media.dispatchEvent(new Event("change")));
-    expect(status.hasAttribute("data-term-bars")).toBe(false);
-    expect(status.hasAttribute("data-term-phone")).toBe(false);
-  });
-
   it("keeps a stale phone reading accessible when the visual age is omitted", async () => {
     phoneMedia();
     const host = await render(bot, { ...engine, driverKind: "museAgent", rateLimits: { ...engine.rateLimits!, observedAt: new Date(now - 4 * 86400_000).toISOString() } });
@@ -205,6 +180,7 @@ describe("TermStatusLine", () => {
     expect(host.textContent).toContain("Old model");
     expect(host.textContent).toContain("/default");
     expect(host.textContent).toContain("no summary yet");
+    expect(host.querySelector("[data-term-status]")?.textContent).toMatch(/[▰▱]{5}/);
   });
 
   it("mutes and describes a stale Muse reading with its age", async () => {

@@ -1,6 +1,6 @@
 // The Terminal skin's two-line status under the composer. It takes the place
 // of the 5h/7d strip, so the meters still open Usage.
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { shownModelSelection, useStore, visibleMessages, type Bot, type InstanceInfo } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { shortPath } from "@/lib/short-path";
@@ -17,13 +17,12 @@ import "./TermStatusLine.css";
 const PHONE_STATUS_QUERY = `${PHONE_QUERY} and (pointer: coarse)`;
 
 export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot; engine: InstanceInfo | undefined; cwd?: string | null; turns?: number }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const mode = useUsageMode();
   const skin = useSkin();
   const [phone, setPhone] = useState(() => window.matchMedia?.(PHONE_STATUS_QUERY).matches ?? false);
-  const statusRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_STATUS_QUERY);
     const change = () => setPhone(media?.matches ?? false);
@@ -46,34 +45,11 @@ export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot
     return !tightest || (window.remaining ?? Infinity) < (tightest.remaining ?? Infinity) ? window : tightest;
   }, undefined);
   const phoneMeters = skin === "multiplexer" ? meter ? [meter] : [] : meters;
-  const meterGap = phoneMeters.length > 1 ? "" : " ";
   const phoneModel = termModelLabel(model);
-  const meterReset = meter?.reset && t(meter.reset.key, meter.reset.vars);
-  useLayoutEffect(() => {
-    const status = statusRef.current;
-    if (!phone || skin !== "multiplexer" || !status) return;
-    let alive = true;
-    const fit = () => {
-      if (!alive) return;
-      delete status.dataset.termBars;
-      if (status.scrollWidth > status.clientWidth) status.dataset.termBars = "off";
-    };
-    fit();
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(fit);
-    observer?.observe(status);
-    window.addEventListener("resize", fit);
-    void document.fonts?.ready.then(fit);
-    return () => {
-      alive = false;
-      observer?.disconnect();
-      window.removeEventListener("resize", fit);
-      delete status.dataset.termBars;
-    };
-  }, [phone, skin, phoneModel, bot.name, locale, meter?.kind, meter?.percent, meterReset]);
   const summary = visibleMessages(bot).findLast((message) => message.kind === "compaction" && readContextCompaction({ value: message.compaction }).status === "valid");
   const age = summary && readingAge(new Date(summary.at).toISOString(), now);
   if (phone) return (
-    <div ref={statusRef} data-term-status data-term-window={bot.name} data-term-phone={skin} role="group" aria-label={t("term.status.aria")} className="term-status">
+    <div data-term-status data-term-window={bot.name} data-term-phone={skin} role="group" aria-label={t("term.status.aria")} className="term-status">
       {skin === "multiplexer" && (
         <span data-term-tab title={bot.name}>
           <span>0:</span><span data-term-tab-name>{bot.name}</span><span>*</span>
@@ -96,11 +72,10 @@ export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot
             {reading && <span id={ageId} className="sr-only">{reading.label(t)}</span>}
             {phoneMeters.map((meter, i) => (
               <span key={meter.id}>
-                {i > 0 && <span aria-hidden="true" className="text-ink-secondary">│</span>}
+                {i > 0 && <span aria-hidden="true" className="text-ink-secondary"> │ </span>}
                 {t(PLAN_WINDOW_SHORT_LABEL_KEY[meter.kind])}{" "}
-                <span data-term-bar aria-hidden="true">{meter.bar}{meterGap}</span>
                 {meter.percent === null ? "-" : t("usage.limits.percentUsed", { percent: meter.percent })}
-                {meter.reset && <span className="text-ink-secondary">{meterGap}({t(meter.reset.key, meter.reset.vars)})</span>}
+                {meter.reset && <span className="text-ink-secondary"> ({t(meter.reset.key, meter.reset.vars)})</span>}
               </span>
             ))}
           </button>

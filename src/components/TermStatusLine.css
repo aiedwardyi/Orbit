@@ -41,7 +41,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.term-status[data-term-bars="off"] [data-term-bar] {
-  display: none;
-}
