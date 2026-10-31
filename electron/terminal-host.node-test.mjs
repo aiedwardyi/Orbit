@@ -2720,6 +2720,20 @@ test("a Claude idle shell footer repeats STALLED twice on a 30/60-minute backoff
   assert.equal(f.notes.length, 6);
 });
 
+test("a recorded Claude idle pane with a background shell repeats STALLED", async (t) => {
+  const recorded = JSON.parse(fs.readFileSync(new URL("../test/fixtures/recorded/claude/idle-background-shell.json", import.meta.url), "utf8"));
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(`\x1b[2J\x1b[H${recorded.reply.screen.join("\r\n")}\r\n`);
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 2);
+});
+
 test("a stall receipt leaves the watcher armed and a plain note stops its repeats", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
