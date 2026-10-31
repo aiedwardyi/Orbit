@@ -1637,6 +1637,45 @@ test("FINISHED fires once per command with the last screen lines", async (t) => 
   assert.equal(f.notes.length, 2);
 });
 
+test("FINISHED tracks each command in a multi-line bot submission", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "echo setup\npnpm test" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 2);
+});
+
+for (const input of ["\r", " \t\r"]) {
+  test(`FINISHED keeps a bot command after empty user input ${JSON.stringify(input)}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+    f.host.write(f.event, pane.sessionId, input);
+    f.host.sendBot("bot-1", { ...pane, text: "pnpm build\r" });
+    f.children[0].data(finishedMark(pane));
+    await f.advance(10_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+test("FINISHED keeps a bot command queued before a reported command completes", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  f.host.sendBot("bot-1", { ...pane, text: "pnpm test\r" });
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
 test("FINISHED is suppressed by a report only for that command", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());

@@ -941,7 +941,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      commandSource: null, reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
+      commands: [], commandInput: "", finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
@@ -950,9 +950,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       paneRuns?.ended(session.id);
       session.autoNote = null;
       session.autoDelivered = true;
-      if (session.commandSource === "bot" && !session.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
-      session.commandSource = null;
-      session.reported = false;
+      const command = session.commands.shift();
+      if (command?.source === "bot" && !command.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
     });
     if (botPane) watchNotes();
     session.generation = (generations.get(key) ?? 0) + 1;
@@ -994,12 +993,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     clearActivityTimer(session);
     const echo = inputEchoText(text);
     const submit = isSubmitInput(text);
+    const commands = `${session.commandInput}${text}`.split("\r");
+    if (submit && !text.includes("\r")) commands.push("");
+    session.commandInput = commands.pop().slice(-INPUT_ECHO_LIMIT);
+    for (const command of commands) {
+      if (inputEchoText(command).trim()) session.commands.push({ source: "bot", reported: false });
+    }
     // only a command the user typed arms their alert
     if (submit) {
-      if (!session.commandSource) {
-        session.commandSource = "bot";
-        session.reported = false;
-      }
       clearTimeout(session.claudeTrustTimer);
       session.autoNote = null;
       session.autoDelivered = false;
@@ -1175,10 +1176,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const submit = mouse ? false : isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
       if (echo || submit) {
-        if (!session.commandSource) {
-          session.commandSource = "user";
-          session.reported = false;
-        }
+        if (!session.commands.length && echo.trim()) session.commands.push({ source: "user", reported: false });
         clearActivityTimer(session);
         session.userInputAt = now();
       }
@@ -1350,7 +1348,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
       if (session && kind === "report") {
         session.reportAt = now();
-        session.reported = true;
+        if (session.commands.length) session.commands[0].reported = true;
         paneRuns?.reported(session.id);
         session.finished = [];
         session.autoNote = null;

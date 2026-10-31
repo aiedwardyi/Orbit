@@ -348,6 +348,7 @@ describe("installOrbitMsg", () => {
       expect(sh).not.toContain("\r");
       expect(readFileSync(path.join(bin, "orbit-clean.cmd"), "utf8")).toContain('"%~dp0orbit-clean.ps1"');
       expect(readFileSync(path.join(bin, "orbit-clean"), "utf8")).toContain('"$@"');
+      expect(readFileSync(path.join(bin, "orbit-clean"), "utf8")).not.toContain("\r");
     } finally {
       await removeTempDir(dir);
     }
