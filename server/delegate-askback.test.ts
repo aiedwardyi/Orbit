@@ -4,11 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getOrCreateChannel, type CommsBus } from "./comms-visibility.ts";
 import { claimAsk, clearAskBudget, clearDelegationWakeBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { DATA_DIR } from "./config.ts";
-import { paneNotesForTurn } from "./context-compaction.ts";
+import { paneNotesForTurn, paneNotesSinceLastUserTurn, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
 import { _resetPending, drainDelegations, finishDelegatedTurn, queueDelegation, type DelegatedTurn } from "./delegations.ts";
 import { asksSender } from "./delegate-askback.ts";
-import { PANE_WAKE_DEBOUNCE_MS, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, isWakeNote, PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { Store, type BotRecord } from "./store.ts";
+import { buildTurnContext } from "./turn-context.ts";
 
 describe("asksSender", () => {
   it.each([
@@ -66,12 +67,16 @@ describe("delegated ask-back", () => {
       hasNotes: (threadId) => notes(threadId).notes.length > 0,
       wake: (botId, threadId) => {
         const pending = notes(threadId);
-        wake(botId, pending.notes.join("\n\n"));
+        const input = buildTurnContext({
+          text: [...pending.notes, PANE_WAKE_PROMPT].join("\n\n"),
+          transcript: [], rewound: false, fresh: false, replaysNatively: false,
+        });
+        wake(botId, input.turnText);
         store.markPaneNotesDelivered(botId, threadId, pending.newestId);
       },
       warn: () => {},
     });
-    bus = { store, broadcast: () => {}, wakeSender: (botId, threadId) => scheduler.noteArrived(botId, threadId) };
+    bus = { store, deviceId: "local-device", broadcast: () => {}, wakeSender: (botId, threadId) => scheduler.noteArrived(botId, threadId) };
     const queued = queueDelegation(bus, sender, { toBotId: peer.id, message: "Check this", depth: 0 }, 1);
     drainDelegations(bus, bus, sender.threadId, (toBotId, _text, _depth, sourceThreadId, channel, taskId, sourceBotId) => {
       turn = { toBotId, sourceThreadId, channelId: channel?.id, taskId, sourceBotId };
@@ -96,7 +101,7 @@ describe("delegated ask-back", () => {
     expect(wake).toHaveBeenCalledExactlyOnceWith(sender.id, expect.stringContaining(reply));
     expect(store.messagesFor(sender.threadId).filter((message) => message.text === reply)).toHaveLength(1);
     expect(store.messagesFor(sender.threadId).find((message) => message.text === reply)).toMatchObject({
-      kind: "note", tool: { name: "Reply from @Helper" }, comm: { peer: "reply", withBotId: peer.id },
+      kind: "activity", tool: { name: "Reply from @Helper" }, comm: { peer: "reply", withBotId: peer.id, wake: true },
     });
     const channel = getOrCreateChannel(store, sender, peer);
     expect(store.messagesFor(channel.threadId).filter((message) => message.text === reply)).toHaveLength(1);
@@ -122,7 +127,7 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).toHaveBeenCalledExactlyOnceWith(sender.id, expect.stringContaining("@Sender, which branch?"));
-    expect(store.messagesFor(sourceThreadId).filter((message) => message.kind === "note")).toHaveLength(1);
+    expect(store.messagesFor(sourceThreadId).filter(isWakeNote)).toHaveLength(1);
   });
 
   it.each([
@@ -134,7 +139,7 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, ok, reply);
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).not.toHaveBeenCalled();
-    expect(store.messagesFor(sender.threadId).some((message) => message.kind === "note")).toBe(false);
+    expect(store.messagesFor(sender.threadId).some(isWakeNote)).toBe(false);
   });
 
   it("does not wake after the sender is deleted", async () => {
@@ -154,7 +159,7 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).not.toHaveBeenCalled();
-    expect(store.messagesFor(sender.threadId).some((message) => message.kind === "note")).toBe(false);
+    expect(store.messagesFor(sender.threadId).some(isWakeNote)).toBe(false);
   });
 
   it.each([false, true])("does not wake for a room reply (ask: %s)", async (ask) => {
@@ -164,7 +169,7 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).not.toHaveBeenCalled();
-    expect(store.messagesFor(room.threadId).some((message) => message.kind === "note")).toBe(false);
+    expect(store.messagesFor(room.threadId).some(isWakeNote)).toBe(false);
   });
 
   it("does not turn an adopted private ask_bot reply into an ask-back", async () => {
@@ -172,6 +177,40 @@ describe("delegated ask-back", () => {
     finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
     await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
     expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("re-arms only local, undelivered ask-back rows after restart", () => {
+    finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
+    const messages = new Store(() => ({ instanceId: "claude", model: "fake-model" })).activePath(sender.threadId);
+    const reply = messages.findLast(isWakeNote)!;
+    expect(hasLocalUndeliveredPaneNote(messages, undefined, "local-device")).toBe(true);
+    expect(hasLocalUndeliveredPaneNote(messages, reply.id, "local-device")).toBe(false);
+    expect(hasLocalUndeliveredPaneNote(messages, undefined, "local-device", reply.id)).toBe(false);
+    expect(hasLocalUndeliveredPaneNote(messages, undefined, "other-device")).toBe(false);
+    expect(paneNotesSinceLastUserTurn(messages, new Set(), reply.id)).toEqual([]);
+    expect(paneNotesSinceLastUserTurn(messages, new Set([reply.id]))).toEqual([]);
+  });
+
+  it.each([
+    ["resumed", false, false],
+    ["inline replay", true, false],
+    ["native replay", true, true],
+  ])("carries the full activity reply exactly once in %s turn input", async (_name, fresh, replaysNatively) => {
+    const reply = "@Sender, which branch should I use?\n\nKeep the full reply, including `code` and https://example.com/?detail=1.";
+    finishDelegatedTurn(bus, turn, true, reply);
+    const messages = store.activePath(sender.threadId);
+    const prepared = await prepareModelContext({ messages, contextWindow: 200_000, taskRecordText: "" });
+    if (prepared.status !== "ready") throw new Error("context not ready");
+    const pending = paneNotesForTurn(messages, new Set(), undefined, fresh, !replaysNatively);
+    const transcript = withoutTurnNotes(prepared.transcript, pending.notes);
+    const input = buildTurnContext({
+      text: [...pending.notes, PANE_WAKE_PROMPT].join("\n\n"),
+      transcript, rewound: false, fresh, replaysNatively,
+    });
+    const delivered = [input.turnText, ...(replaysNatively ? transcript.map((message) => message.text) : [])].join("\n\n");
+    expect(delivered.split(reply)).toHaveLength(2);
+    expect(pending.newestId).toBe(messages.findLast(isWakeNote)!.id);
+    expect(messages.filter((message) => message.kind === "note")).toHaveLength(0);
   });
 
   it("bounds ping-pong by the comms budget while preserving the depth cap", async () => {

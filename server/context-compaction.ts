@@ -1,5 +1,6 @@
 import type { ModelCatalog } from "./contracts.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
+import { isWakeNote } from "./pane-wake.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { ENGINE_SUMMARY_PREFIX, replyExcerpt, transcriptText } from "./replies.ts";
 import type { Message, OptionCardData } from "./store.ts";
@@ -293,7 +294,7 @@ function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, 
     if (message.id === deliveredId) break;
     if (excludeIds.has(message.id)) continue;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (message.kind === "note" && message.text?.trim()) notes.unshift({ id: message.id, text: paneNoteText(message.text) });
+    if (isWakeNote(message) && message.text?.trim()) notes.unshift({ id: message.id, text: paneNoteText(message.text) });
   }
   return notes;
 }
@@ -377,7 +378,7 @@ export function paneNotesForTurn(
   const newestId = sent.length < pending.length
     ? sent.at(-1)?.id
     : notes.length || replaysTranscript
-      ? messages.findLast((message) => message.kind === "note" && message.text?.trim() && !excludeIds.has(message.id))?.id
+      ? messages.findLast((message) => isWakeNote(message) && message.text?.trim() && !excludeIds.has(message.id))?.id
       : undefined;
   if (!contextWindow) return { notes, newestId };
   return { notes, newestId, ids: sent.map((note) => note.id), tokens: estimateContextTokens(sent) };
@@ -495,7 +496,7 @@ function replayUnits(
         ...(message.role === "user" ? { turn: true } : {}),
       }];
     }
-    if (message.kind === "note" && message.text?.trim()) {
+    if (isWakeNote(message) && message.text?.trim()) {
       return [{ id: message.id, pathIndex, role: "user", text: paneNoteText(message.text), label: "Pane note: " }];
     }
     if (message.kind === "activity" && message.tool && message.tool.ok !== undefined) {

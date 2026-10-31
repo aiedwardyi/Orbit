@@ -20,12 +20,16 @@ export interface PaneWakeDeps {
   now?(): number;
 }
 
+export function isWakeNote(message: Message): boolean {
+  return message.kind === "note" || (message.kind === "activity" && message.comm?.peer === "reply" && message.comm.wake === true);
+}
+
 export function hasLocalUndeliveredPaneNote(messages: Message[], deliveredId: string | undefined, deviceId: string, skippedId?: string): boolean {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id === deliveredId || message.id === skippedId) break;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (message.kind === "note" && message.text?.trim() && message.origin === deviceId) return true;
+    if (isWakeNote(message) && message.text?.trim() && message.origin === deviceId) return true;
   }
   return false;
 }

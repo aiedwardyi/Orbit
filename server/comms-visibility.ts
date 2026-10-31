@@ -9,6 +9,7 @@ import { type BotRecord, type GroupRecord, type Message, type Store } from "./st
  * so chat clients see the change without waiting for a refresh. */
 export interface CommsBus {
   store: Store;
+  deviceId?: string;
   wakeSender?: (botId: string, threadId: string) => void;
   /** SSE broadcast (kind: "message" envelope). */
   broadcast: (payload: Record<string, unknown>) => void;
@@ -140,11 +141,12 @@ export function postPeerReply(
   if (!comm || !reply.trim() || channel?.threadId === sourceThreadId) return false;
   const row: Omit<Message, "id" | "at"> = {
     role: "bot",
-    kind: wake ? "note" : "activity",
+    kind: "activity",
     tool: { name: `Reply from @${target.name}` },
-    comm: { ...comm, peer: "reply" },
+    comm: { ...comm, peer: "reply", ...(wake ? { wake: true as const } : {}) },
     text: reply,
   };
+  if (wake) row.origin = bus.deviceId;
   if (sourceThreadId !== from.threadId) row.from = { botId: from.id, name: from.name, color: from.color };
   bus.store.appendMessage(sourceThreadId, row);
   return true;

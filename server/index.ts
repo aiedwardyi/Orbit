@@ -236,7 +236,7 @@ import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxRecipient, mailboxScope, mailboxSecretFor, readMailboxBody } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
-import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, isWakeNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
 import { LimitWaits } from "./limit-wait.ts";
 import {
@@ -4061,7 +4061,7 @@ const paneWake = new PaneWakeScheduler({
   },
   // The note stays undelivered for the next user turn; the marker only keeps a restart from waking for it.
   skipped: (botId, threadId) => {
-    const newest = store.activePath(threadId).findLast((message) => message.kind === "note");
+    const newest = store.activePath(threadId).findLast(isWakeNote);
     if (newest) store.markPaneNotesSkipped(botId, threadId, newest.id);
   },
   wake: (botId, threadId) => {
@@ -5951,7 +5951,7 @@ function enqueueDrainedRoomTurn(
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
 // they can mirror messages + chips without re-deriving SSE plumbing. Same
 // shape every comms entry point uses (ask_bot, delegate_bot).
-const commsBus: CommsBus = { store, broadcast, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId) };
+const commsBus: CommsBus = { store, broadcast, deviceId: profileSyncSettings.deviceId, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId) };
 
 // approval bus: peer-approval.ts only needs to push cards and broadcast
 // them — its pending map lives in the module so the two respond endpoints
