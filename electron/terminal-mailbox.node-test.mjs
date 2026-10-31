@@ -261,6 +261,29 @@ test("powershell marks report and hook/notify posts, leaves plain notes unmarked
   });
 });
 
+test("a failed --report leaves its error line in the report signal", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(409, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "pane is not open" }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const signal = path.join(dir, "report-signal");
+  const env = paneEnv(bin, `http://127.0.0.1:${server.address().port}`, { ORBIT_REPORT_SIGNAL: signal });
+  const ps1 = path.join(bin, "orbit-msg.ps1");
+  const note = await runPs1Direct({ ps1, env, args: ["plain"] });
+  assert.equal(note.status, 1);
+  assert.equal(existsSync(signal), false);
+  const report = await runPs1Direct({ ps1, env, args: ["--report", "DONE", "WIDGET", "text"] });
+  assert.equal(report.status, 1);
+  assert.equal(readFileSync(signal, "utf8"), "orbit-msg: pane is not open");
+});
+
 test("powershell notify posts only turn-complete events with text", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
   const { dir, bin } = await installBin();
   t.after(() => rmSync(dir, { recursive: true, force: true }));

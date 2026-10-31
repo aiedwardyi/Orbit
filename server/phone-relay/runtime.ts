@@ -3,7 +3,7 @@
 // against an in-process fake relay, a fake CA and a fake clock.
 
 import { googleSubHash } from "../../shared/google-id-token.ts";
-import { FrameError, PERSON_NAME_MAX, PHONE_RELAY_OFF, PC_NAME_MAX, encodeFrame, hostFor, type PhoneRelayStatus } from "../../shared/relay-protocol.ts";
+import { FrameError, PERSON_NAME_MAX, PHONE_RELAY_OFF, PC_NAME_MAX, encodeFrame, hostFor, type PhoneRelayStatus, type TeamSnag } from "../../shared/relay-protocol.ts";
 import { ACCOUNT_TOKEN_MAX_AGE_MS, idTokenClaims, registerAccount } from "./account.ts";
 import { CertManager, type CertManagerOptions } from "./acme.ts";
 import { RelayClient, defaultConnector, type RelayConnector } from "./client.ts";
@@ -59,6 +59,7 @@ export function createPhoneRelay(options: PhoneRelayOptions, deps: PhoneRelayDep
     syncAccount: () => runtime.syncAccount(),
     reauth: () => runtime.reauth(),
     accountReady: () => runtime.accountReady(),
+    sendSnag: (snag) => runtime.sendSnag(snag),
   };
 }
 
@@ -205,6 +206,10 @@ class RelayRuntime {
     return this.account !== null;
   }
 
+  sendSnag(snag: TeamSnag): Promise<boolean> {
+    return this.client?.sendSnag(snag) ?? Promise.resolve(false);
+  }
+
   reauth(): void {
     this.client?.reauth();
   }
@@ -332,6 +337,7 @@ class RelayRuntime {
       lastError: this.ctAlert ?? linkError ?? cert.error,
       nextRetryAt: link.nextRetryAt,
     };
+    if (connected && link.snags) next.snags = true;
     if (sameStatus(next, this.current)) return;
     this.current = next;
     this.options.onStatus({ ...next });
@@ -356,6 +362,7 @@ function sameStatus(a: PhoneRelayStatus, b: PhoneRelayStatus): boolean {
     a.poolIdle === b.poolIdle &&
     a.certNotAfter === b.certNotAfter &&
     a.lastError === b.lastError &&
-    a.nextRetryAt === b.nextRetryAt
+    a.nextRetryAt === b.nextRetryAt &&
+    a.snags === b.snags
   );
 }

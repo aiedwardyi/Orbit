@@ -21,6 +21,7 @@ import {
   rawPublicKey,
   signAccountTicket,
   signTicket,
+  teamSnagSchema,
   verifyAuth,
   verifyInvite,
   verifyTicket,
@@ -75,6 +76,9 @@ export class FakeRelay extends EventEmitter {
   /** Every auth frame, in order. */
   readonly auths: AuthMessage[] = [];
   answerPings = true;
+  /** Offer snags in ready, as a team relay does. An old relay closes the channel on a snag. */
+  offerSnags = false;
+  readonly snags: unknown[] = [];
   enrollAnswer: ((body: string) => EnrollAnswer) | null = null;
   /** When set, enroll answers wait for it. */
   enrollGate: Promise<void> | null = null;
@@ -297,6 +301,7 @@ export class FakeRelay extends EventEmitter {
           const ready: ReadyMessage = { type: "ready", session: control.session, poolToken: control.poolToken, pool: this.pool };
           if (this.refreshTicket) ready.ticket = this.refreshTicket;
           if (this.refreshAccount && msg.account) ready.account = this.refreshAccount;
+          if (this.offerSnags) ready.snags = true;
           socket.write(encodeFrame(ready));
           this.record("control:ready");
         } else if (msg.type === "ping") {
@@ -304,6 +309,12 @@ export class FakeRelay extends EventEmitter {
           if (this.answerPings) socket.write(encodeFrame({ type: "pong" }));
         } else if (msg.type === "pong") {
           this.record("pong");
+        } else if (msg.type === "snag") {
+          this.snags.push(msg.data);
+          this.record("snag");
+          const id = teamSnagSchema.safeParse(msg.data).data?.id;
+          if (this.offerSnags && id) socket.write(encodeFrame({ type: "snagged", id }));
+          else socket.destroy();
         }
       }
     });

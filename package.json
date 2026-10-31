@@ -39,7 +39,7 @@
     "test:server-boot-probe": "node --test electron/server-boot-probe.node-test.mjs",
     "bench:observation": "node --experimental-strip-types scripts/bench-observation.ts",
     "test:watch": "vitest",
-    "test:terminal": "node --test electron/terminal-appearance.node-test.mjs electron/terminal-host.node-test.mjs electron/pane-runs.node-test.mjs electron/crash-log.node-test.mjs electron/terminal-mailbox.node-test.mjs electron/terminal-bridge.node-test.mjs electron/terminal-screen.node-test.mjs",
+    "test:terminal": "node --test electron/terminal-appearance.node-test.mjs electron/terminal-host.node-test.mjs electron/pane-runs.node-test.mjs electron/team-snags.node-test.mjs electron/crash-log.node-test.mjs electron/terminal-mailbox.node-test.mjs electron/terminal-bridge.node-test.mjs electron/terminal-screen.node-test.mjs",
     "smoke:terminal": "node --test electron/terminal-smoke.node-test.mjs",
     "test:cua": "pnpm build:cua && node scripts/smoke-cua.mjs",
     "test:cua-container": "node scripts/smoke-cua-container.mjs",

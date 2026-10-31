@@ -9,7 +9,7 @@ import type { Duplex } from "node:stream";
 import { z } from "zod";
 
 import { googleDiscoveryKeySource, type GoogleKeySource } from "../shared/google-id-token.ts";
-import { PHONE_RELAY_OFF, SETUP_PREFIX, labelFromHost, parseSetupCode, type PhoneRelayStatus, type SetupCodeProblem } from "../shared/relay-protocol.ts";
+import { PHONE_RELAY_OFF, SETUP_PREFIX, labelFromHost, parseSetupCode, type PhoneRelayStatus, type SetupCodeProblem, type TeamSnag } from "../shared/relay-protocol.ts";
 import type { HarnessHandler } from "./early-listen.ts";
 import {
   RateLimiter,
@@ -295,6 +295,10 @@ export class PhoneAccess {
       this.google?.dropReplays();
     }
     if (this.google) this.relay?.syncAccount?.();
+  }
+
+  sendSnag(snag: TeamSnag): Promise<boolean> {
+    return this.relay?.sendSnag?.(snag) ?? Promise.resolve(false);
   }
 
   /** The name phones see changed, so the relay authenticates again. */

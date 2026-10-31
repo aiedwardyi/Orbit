@@ -15,6 +15,7 @@ import {
   encodeFrame,
   signAuth,
   type RelayMessage,
+  type TeamSnag,
 } from "../../shared/relay-protocol.ts";
 import type { Cancel, Clock } from "./clock.ts";
 import type { Identity } from "./store.ts";
@@ -38,6 +39,7 @@ export const MAX_POOL = 16;
 export const MAX_PARALLEL_OPENS = 4;
 export const REFILL_RETRY_BASE_MS = 1_000;
 export const REFILL_RETRY_CAP_MS = 30_000;
+export const SNAG_TIMEOUT_MS = 30_000;
 /** A data channel that closes sooner than this counts as a failed open. */
 const SHORT_LIVED_MS = 5_000;
 
@@ -68,6 +70,8 @@ export interface ClientSnapshot {
   poolIdle: number;
   lastError: string | null;
   nextRetryAt: number | null;
+  /** The live session's relay takes snags. */
+  snags: boolean;
 }
 
 export interface RelayClientOptions {
@@ -111,6 +115,8 @@ interface Session {
   connectedAt: number;
   lastReceived: number;
   pingSentAt: number | null;
+  snags: boolean;
+  snagWait: { id: string; settle(ok: boolean): void } | null;
   channels: Set<DataChannel>;
   cancels: Set<Cancel>;
 }
@@ -145,7 +151,30 @@ export class RelayClient {
   snapshot(): ClientSnapshot {
     let poolIdle = 0;
     if (this.session?.ready) for (const channel of this.session.channels) if (channel.state === "idle") poolIdle++;
-    return { state: this.state, rttMs: this.rttMs, poolIdle, lastError: this.lastError, nextRetryAt: this.nextRetryAt };
+    const snags = this.session?.ready === true && this.session.snags;
+    return { state: this.state, rttMs: this.rttMs, poolIdle, lastError: this.lastError, nextRetryAt: this.nextRetryAt, snags };
+  }
+
+  /** One at a time, and only after a ready that offered snags: an older relay closes the channel on one. True once the relay answers. */
+  sendSnag(snag: TeamSnag): Promise<boolean> {
+    const session = this.session;
+    if (!session?.ready || !session.snags || session.snagWait) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const wait = {
+        id: snag.id,
+        settle: (ok: boolean) => {
+          if (session.snagWait !== wait) return;
+          session.snagWait = null;
+          timeout();
+          session.cancels.delete(timeout);
+          resolve(ok);
+        },
+      };
+      const timeout = this.clock.schedule(SNAG_TIMEOUT_MS, () => wait.settle(false));
+      session.cancels.add(timeout);
+      session.snagWait = wait;
+      this.send(session.socket, { type: "snag", data: snag });
+    });
   }
 
   start(): void {
@@ -233,6 +262,8 @@ export class RelayClient {
       connectedAt: 0,
       lastReceived: this.clock.now(),
       pingSentAt: null,
+      snags: false,
+      snagWait: null,
       channels: new Set(),
       cancels: new Set(),
     };
@@ -288,6 +319,7 @@ export class RelayClient {
       }
       case "ready":
         if (!session.authSent || session.ready) throw new Error("unexpected ready");
+        session.snags = msg.snags === true;
         this.onReady(session, msg.session, msg.poolToken, msg.pool.min, msg.pool.max, msg.ticket);
         if (msg.account) this.opts.onAccount?.(msg.account);
         return;
@@ -304,6 +336,9 @@ export class RelayClient {
           session.pingSentAt = null;
           this.changed();
         }
+        return;
+      case "snagged":
+        if (session.snagWait?.id === msg.id) session.snagWait.settle(true);
         return;
       case "notice":
         if (msg.code === "draining") {
@@ -370,6 +405,7 @@ export class RelayClient {
     const session = this.session;
     if (!session) return;
     this.session = null;
+    session.snagWait?.settle(false);
     this.refillTimer?.();
     this.refillTimer = null;
     for (const cancel of session.cancels) cancel();

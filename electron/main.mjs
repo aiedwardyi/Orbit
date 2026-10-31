@@ -53,6 +53,7 @@ import {
 import { pollServerIdentity } from "./server-boot-probe.mjs";
 import { createErrorReports, errorReportDsn } from "./error-reports.mjs";
 import { installErrorReportCapture, registerErrorReportIpc } from "./error-report-capture.mjs";
+import { spoolTeamSnag } from "./team-snags.mjs";
 import { ERROR_SITES } from "../shared/error-report.mjs";
 import {
   BOOT_CONNECTING,
@@ -335,6 +336,7 @@ const terminalHost = createTerminalHost({
   owner: () => mainWindow?.webContents ?? null,
   mailbox: paneMailbox,
   paneRuns,
+  snag: (snag) => spoolTeamSnag(path.join(app.getPath("userData"), "team-snags"), errorReports.consent, snag),
   loadPty: () => ({ spawn: (shell, args, options) => spawnTerminalPty(
     require.resolve(app.isPackaged ? path.join(process.resourcesPath, "terminal", "node-pty") : "node-pty"), shell, args, options,
   ) }),
@@ -934,6 +936,7 @@ async function startServerOn(port) {
     OMB_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
     OMB_PORT: String(port),
     OMB_USER_DATA: app.getPath("userData"),
+    OMB_APP_VERSION: app.getVersion(),
     OMB_DOWNLOADS_DIR: app.getPath("downloads"),
     OMB_PACKAGED: "1",
     ...(childEnvCredentials.composioApiKey

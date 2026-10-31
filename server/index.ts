@@ -5,7 +5,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { SERVER_TIMEOUTS, currentEarlyListen } from "./early-listen.ts";
-import { hostname as osHostname } from "node:os";
+import { homedir, hostname as osHostname } from "node:os";
 import { extname, join } from "node:path";
 
 import { z } from "zod";
@@ -295,6 +295,8 @@ import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googlePhotoOffered, googleProfileFill, googleProfilePhoto, takeGoogleEnv } from "./google-account.ts";
 import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
+import { readErrorReportConsent, TeamSnags } from "./team-snags.ts";
+import { postChiefNote, startTeamSnagOwner } from "./team-snags-owner.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
@@ -503,6 +505,7 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
   onChange: () => {
     postPhoneKeepAwake(phoneAccess, utilityParentPort);
     const host = phoneAccess.presenceHost();
+    void teamSnags?.sync();
     if (host === relayPresenceHost) return;
     relayPresenceHost = host;
     startDevicePresence();
@@ -943,6 +946,21 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+const snagUserData = process.env.OMB_USER_DATA;
+const teamSnags = snagUserData ? new TeamSnags({
+  userData: snagUserData,
+  status: () => phoneAccess.status(),
+  send: (snag) => phoneAccess.sendSnag(snag),
+  consent: () => readErrorReportConsent(snagUserData),
+  teacher: (botId) => {
+    const selection = botId ? store.bot(botId)?.modelSelection : undefined;
+    return selection ? `${selection.instanceId}:${selection.model}` : "";
+  },
+  build: process.env.OMB_APP_VERSION ?? "",
+  os: process.platform,
+  scrub: { home: homedir(), user: process.env.USERNAME ?? process.env.USER ?? "" },
+  warn: (line) => console.warn(line),
+}) : null;
 initializeSteerQueue(store, drainQueuedSends, () => threadSyncGate.enabled && profileSyncSettings.syncChats && !!profileSyncSettings.folder);
 if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
@@ -4065,7 +4083,10 @@ const paneWake = new PaneWakeScheduler({
   wake: (botId, threadId) => {
     startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, paneNoteWake: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
-      else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
+      else {
+        console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
+        teamSnags?.record({ event: "wake-failed", key: botId, bot: botId, detail: err instanceof Error ? err.message : String(err) });
+      }
     });
   },
   warn: (line) => console.warn(line),
@@ -5949,7 +5970,7 @@ function enqueueDrainedRoomTurn(
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
 // they can mirror messages + chips without re-deriving SSE plumbing. Same
 // shape every comms entry point uses (ask_bot, delegate_bot).
-const commsBus: CommsBus = { store, broadcast, deviceId: profileSyncSettings.deviceId, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId) };
+const commsBus: CommsBus = { store, broadcast, deviceId: profileSyncSettings.deviceId, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId), replyUnwoken: (botId, detail) => teamSnags?.record({ event: "reply-unwoken", key: botId, bot: botId, detail }) };
 
 // approval bus: peer-approval.ts only needs to push cards and broadcast
 // them — its pending map lives in the module so the two respond endpoints
@@ -8753,6 +8774,17 @@ setImmediate(drainQueuedSends);
 googleSync.resume();
 uploads.sweep();
 setInterval(() => uploads.sweep(), 60 * 60 * 1000).unref();
+setInterval(() => void teamSnags?.sync(), 60_000).unref();
+startTeamSnagOwner({
+  enrolledBase: () => phoneAccess.base(),
+  baked: googleEnv.teamRelay,
+  ownerHash: googleEnv.teamOwner,
+  email: () => googleAccount.owner()?.email ?? null,
+  tokens: googleAccount,
+  file: join(DATA_DIR, "team-snags.jsonl"),
+  post: (text) => void postChiefNote(store, profileSyncSettings.deviceId, text),
+  warn: (line) => console.warn(line),
+});
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {

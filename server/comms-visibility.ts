@@ -11,6 +11,8 @@ export interface CommsBus {
   store: Store;
   deviceId?: string;
   wakeSender?: (botId: string, threadId: string) => void;
+  /** A delegated reply that asks its sender something could not wake it. */
+  replyUnwoken?: (botId: string, detail: string) => void;
   /** SSE broadcast (kind: "message" envelope). */
   broadcast: (payload: Record<string, unknown>) => void;
   /** SSE broadcast (kind: "group" envelope) for a single group. */
