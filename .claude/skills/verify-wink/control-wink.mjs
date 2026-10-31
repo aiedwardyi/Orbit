@@ -54,7 +54,7 @@ const flags = {};
 const args = [];
 for (let i = 0; i < rest.length; i++) {
   if (!rest[i].startsWith("--")) args.push(rest[i]);
-  else if (SWITCHES.has(rest[i].slice(2)) || rest[i + 1] === undefined) flags[rest[i].slice(2)] = true;
+  else if (SWITCHES.has(rest[i].slice(2)) || rest[i + 1] === undefined || rest[i + 1].startsWith("--")) flags[rest[i].slice(2)] = true;
   else flags[rest[i].slice(2)] = rest[++i];
 }
 const TIMEOUT = Number(flags.timeout ?? 10_000);
@@ -718,8 +718,9 @@ async function seedFromProfile(state) {
   };
   for (const [at, room] of rooms.entries()) {
     const group = profile.groups[at];
-    // A mentions-only room answers nothing untagged, so tag a visible member.
-    const named = group.responder === "mentions" && group.members.map((index) => profile.bots[index]).find((bot) => !bot.hidden);
+    // A mentions-only room, or one whose responder is hidden, answers nothing untagged, so tag a visible member.
+    const untagged = group.responder === "mentions" || (typeof group.responder === "number" && profile.bots[group.responder]?.hidden);
+    const named = untagged && group.members.map((index) => profile.bots[index]).find((bot) => !bot.hidden);
     const tag = named ? `@${named.name} ` : "";
     await converse(state, room.threadId, `/api/groups/${room.id}/messages`, `${tag}plan the next step`, quiet(room.id));
     await converse(state, room.threadId, `/api/groups/${room.id}/messages`, `${tag}compare desktop and phone [two]`, quiet(room.id));
