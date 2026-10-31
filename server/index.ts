@@ -296,7 +296,7 @@ import { GoogleAccount, applyGoogleAccountMessage, googlePhotoOffered, googlePro
 import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
 import { readErrorReportConsent, TeamSnags } from "./team-snags.ts";
-import { postChiefNote, startTeamSnagOwner } from "./team-snags-owner.ts";
+import { chiefSnagIds, postChiefNote, startTeamSnagOwner } from "./team-snags-owner.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
@@ -4061,7 +4061,7 @@ bus.subscribe((event: RuntimeEvent) => {
 function paneNotesPending(threadId: string): boolean {
   const bot = store.botByThread(threadId);
   const deliveredId = bot ? store.taskByThread(bot.id, threadId)?.paneNotesDeliveredId : undefined;
-  return paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredId ?? undefined).length > 0;
+  return paneNotesSinceLastUserTurn(store.activePath(threadId), new Set(), deliveredId ?? undefined, true).length > 0;
 }
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
@@ -8782,7 +8782,8 @@ startTeamSnagOwner({
   email: () => googleAccount.owner()?.email ?? null,
   tokens: googleAccount,
   file: join(DATA_DIR, "team-snags.jsonl"),
-  post: (text) => void postChiefNote(store, profileSyncSettings.deviceId, text),
+  post: (text, ids) => postChiefNote(store, profileSyncSettings.deviceId, text, ids),
+  postedIds: () => chiefSnagIds(store),
   warn: (line) => console.warn(line),
 });
 // Wake timers die with the process; re-arm teachers whose stored notes are

@@ -2854,6 +2854,52 @@ test("a STALLED note that fails five times sends a note-lost snag", async (t) =>
   assert.match(snags[0].tail, /usage limit/);
 });
 
+test("a successful retry before signal polling does not send a false note-lost snag", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "failed before retry");
+  fs.utimesSync(signal, new Date(Date.UTC(2026, 9, 4)), new Date(Date.UTC(2026, 9, 4)));
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(1000);
+  await f.advance(10 * 60_000);
+  assert.deepEqual(snags, []);
+});
+
+test("repeated report failures retain the earliest pending deadline", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "first failure");
+  await f.settle();
+  await f.advance(9 * 60_000);
+  fs.writeFileSync(signal, "second failure");
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(snags.map((s) => [s.event, s.detail]), [["note-lost", "first failure"]]);
+});
+
+test("a delayed signal uses the failure time instead of the polling time", async (t) => {
+  const snags = [];
+  const f = stallFixture({ snag: (snag) => snags.push(snag) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n");
+  const signal = f.children[0].options.env.ORBIT_REPORT_SIGNAL;
+  fs.writeFileSync(signal, "delayed failure");
+  const failedAt = new Date(Date.UTC(2026, 9, 4) - 9 * 60_000);
+  fs.utimesSync(signal, failedAt, failedAt);
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(snags.map((s) => [s.event, s.detail]), [["note-lost", "delayed failure"]]);
+});
+
 test("a failed report with no later report sends a note-lost snag after 10 minutes", async (t) => {
   for (const reported of [false, true]) {
     const snags = [];

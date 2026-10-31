@@ -607,7 +607,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (!session.worker || session.retired || session.exitCode !== null) continue;
       if (session.reportSignal && fs.existsSync(session.reportSignal)) {
         try {
-          session.reportLost = { at, detail: fs.readFileSync(session.reportSignal, "utf8") };
+          const failedAt = Math.min(at, fs.statSync(session.reportSignal).mtimeMs);
+          const detail = fs.readFileSync(session.reportSignal, "utf8");
+          if (session.reportAt < failedAt && (!session.reportLost || failedAt < session.reportLost.at)) session.reportLost = { at: failedAt, detail };
           fs.unlinkSync(session.reportSignal);
         } catch {}
       }
@@ -1434,6 +1436,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
       if (session && kind === "report") {
         session.reportAt = now();
+        session.reportLost = null;
+        if (session.reportSignal) { try { fs.unlinkSync(session.reportSignal); } catch {} }
         if (session.runningCommand) session.runningCommand.reported = true;
         paneRuns?.reported(session.id);
         session.finished = [];

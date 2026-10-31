@@ -180,6 +180,8 @@ export interface Message {
   /** group threads: which member said this (sender attribution). */
   from?: { botId: string; name: string; color: string };
   origin?: string;
+  quiet?: true;
+  snagIds?: string[];
   /** emoji reactions; by = "user" or a member botId. */
   reactions?: Array<{ emoji: string; by: string }>;
   /** comm chips: "Message to @X" in the caller's chat, linking to the

@@ -156,7 +156,7 @@ export class TeamSnags {
   record(input: Omit<SpooledSnag, "id" | "at">): void {
     try {
       if (!this.options.consent()) return;
-      const snag: SpooledSnag = { ...input, id: randomBytes(16).toString("hex"), at: this.now() };
+      const snag: SpooledSnag = { ...input, ...(input.detail !== undefined ? { detail: input.detail.slice(0, 4000) } : {}), id: randomBytes(16).toString("hex"), at: this.now() };
       writeFileAtomic(join(this.dir, `${snag.at}-${snag.id}.json`), JSON.stringify(snag));
       void this.sync();
     } catch {}
@@ -223,7 +223,7 @@ export class TeamSnags {
 
   private sent(): SentState {
     const day = new Date(this.now()).toISOString().slice(0, 10);
-    const cutoff = this.now() - REPEAT_MS;
+    const cutoff = this.now() - KEEP_MS - REPEAT_MS;
     let value: SentState | undefined;
     try {
       value = sentStateSchema.safeParse(JSON.parse(readFileSync(this.sentFile, "utf8"))).data;

@@ -284,7 +284,8 @@ export class PhoneAccess {
   }
 
   status(): PhoneRelayStatus {
-    return this.relay?.status() ?? { ...PHONE_RELAY_OFF, lastError: this.failure };
+    const initializing = this.handler && relayMode(this.options.config() ?? {}, this.options.env).kind !== "off";
+    return this.relay?.status() ?? { ...PHONE_RELAY_OFF, state: initializing ? "reconnecting" : "off", lastError: this.failure };
   }
 
   /** This PC's Google sign-in changed or brought a new ID token. */

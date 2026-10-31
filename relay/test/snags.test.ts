@@ -176,6 +176,25 @@ describe("POST /v1/team/snags", () => {
 describe("snag store", () => {
   const LABEL = "aaaaaaaaaaaaaaaa";
 
+  it("expires idle diagnostic content on disk and stops cleanup on close", async () => {
+    vi.useFakeTimers();
+    const dir = await tempDir();
+    const file = join(dir, "team-snags");
+    const store = await SnagStore.open(dir, 20);
+    try {
+      store.add(LABEL, snag());
+      await store["writes"];
+      expect(await readFile(file, "utf8")).toContain(SECRET);
+      await vi.advanceTimersByTimeAsync(SNAG_KEEP_MS + 60_000);
+      await store["writes"];
+      expect(await readFile(file, "utf8")).toBe("");
+    } finally {
+      await store.close();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+    }
+  });
+
   it("caps each label per day, survives a reload, and re-offers a lapsed lease", async () => {
     const dir = await tempDir();
     let t = Date.parse("2026-10-31T01:00:00Z");

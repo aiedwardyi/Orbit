@@ -34,6 +34,7 @@ export class SnagStore {
   private writes: Promise<void> = Promise.resolve();
   private queued = false;
   private readonly file: string;
+  private timer?: ReturnType<typeof setInterval>;
 
   private constructor(
     dir: string,
@@ -54,11 +55,13 @@ export class SnagStore {
       } catch {}
     }
     if (store.prune()) await store.save();
+    store.timer = setInterval(() => { if (store.prune()) void store.save(); }, 60_000);
+    store.timer.unref();
     return store;
   }
 
   add(label: string, snag: TeamSnag): AddResult {
-    this.prune();
+    if (this.prune()) void this.save();
     if (this.held.some((entry) => entry.snag.id === snag.id)) return "duplicate";
     const day = Math.floor(this.now() / DAY_MS);
     const seen = this.today.get(label);
@@ -90,6 +93,7 @@ export class SnagStore {
   }
 
   async close(): Promise<void> {
+    clearInterval(this.timer);
     await this.writes;
   }
 

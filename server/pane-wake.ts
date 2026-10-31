@@ -21,7 +21,7 @@ export interface PaneWakeDeps {
 }
 
 export function isWakeNote(message: Message): boolean {
-  return message.kind === "note" || (message.kind === "activity" && message.comm?.peer === "reply" && message.comm.wake === true);
+  return !message.quiet && (message.kind === "note" || (message.kind === "activity" && message.comm?.peer === "reply" && message.comm.wake === true));
 }
 
 export function paneWakeEnabled(store: Store, botId: string, threadId: string): boolean {

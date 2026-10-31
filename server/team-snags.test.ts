@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PHONE_RELAY_OFF, SNAG_MAX_BYTES, teamSnagSchema, type PhoneRelayStatus, type TeamSnag } from "../shared/relay-protocol.ts";
 import { buildTeamSnag, scrubSnagText, SNAG_SPOOL_DIR, TeamSnags, type SpooledSnag } from "./team-snags.ts";
+import { PhoneAccess } from "./phone-access.ts";
 
 const ctx = { home: "C:\\Users\\Jisoo", user: "jisoo" };
 const MIN = 60_000;
@@ -157,6 +158,43 @@ describe("TeamSnags", () => {
     await make().sync();
     expect(readdirSync(spool())).toHaveLength(1);
     expect(sent).toEqual([]);
+  });
+
+  it("preserves the queue through enabled relay initialization and deletes it when disabled", async () => {
+    queue({ key: "a" });
+    let enabled = true;
+    const access = new PhoneAccess({
+      dataDir: userData, env: {}, staticDir: null,
+      config: () => ({ base: "wink.example", enabled }), saveEnabled: () => {},
+      loadClient: async () => { throw new Error("offline"); },
+      onChange: () => { status = access.status(); void snags.sync(); },
+    });
+    const snags = make();
+    await access.start(() => {});
+    expect(readdirSync(spool())).toHaveLength(1);
+    expect(sent).toEqual([]);
+    enabled = false;
+    await access.restart();
+    expect(existsSync(spool())).toBe(false);
+  });
+
+  it("clamps long server errors before validating the spool", async () => {
+    const snags = make();
+    await snags.sync();
+    snags.record({ event: "wake-failed", key: "bot", detail: "provider error ".repeat(1000) });
+    await snags.sync();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].detail).toBe("provider error ".repeat(1000).slice(0, 300));
+  });
+
+  it("deduplicates an old backlog across sender restarts", async () => {
+    queue({ key: "bot", event: "wake-failed", at: now - 180 * MIN });
+    await make().sync();
+    queue({ key: "bot", event: "wake-failed", at: now - 179 * MIN });
+    queue({ key: "other", event: "wake-failed", at: now - 178 * MIN });
+    await make().sync();
+    expect(sent.map((s) => s.at)).toEqual([now - 180 * MIN, now - 178 * MIN]);
+    expect(readdirSync(spool())).toEqual([]);
   });
 
   it("keeps a report the relay did not take", async () => {

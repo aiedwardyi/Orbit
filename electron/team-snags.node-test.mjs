@@ -5,6 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { spoolTeamSnag } from "./team-snags.mjs";
 
+test("a failed rename removes the unscreened temporary spool", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "team-snags-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.mock.method(fs, "renameSync", () => { throw new Error("rename failed"); });
+  assert.equal(spoolTeamSnag(dir, () => true, { event: "stalled", key: "pane", tail: "private output" }), false);
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
 test("a snag is spooled only into an open queue with the switch on", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "team-snags-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
