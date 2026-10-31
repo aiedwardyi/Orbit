@@ -677,11 +677,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const stall = session.stallChangedAt;
       session.stallTries += 1;
       const elapsed = session.stallPosts ? at - stall : threshold;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, elapsed, session.cwd, session.engine, session.cols))).then(() => {
+      const sentAt = now();
+      const delivered = () => {
         if (session.stallChangedAt !== stall) return;
         session.stallPosts += 1;
         session.stallRepeatAt = now() + STALL_REPEAT_MS * 2 ** (session.stallPosts - 1);
-      }).catch(() => {
+      };
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, elapsed, session.cwd, session.engine, session.cols))).then(delivered).catch(() => {
+        // The mailbox can store the note and send its receipt even when the response is lost.
+        if (session.stallReceiptAt >= sentAt) return delivered();
         if (limitKey) session.limitsNoted.delete(limitKey);
         // A LIMIT receipt raises noteAt, which stops the retry above.
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
@@ -966,7 +970,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, stallReceiptAt: -Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       commandInputs: [], commandInput: "", commandUserInput: false, runningCommand: null, shellExecuting: false, historyId: null, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
@@ -1398,7 +1402,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.finished = [];
         session.autoNote = null;
         session.autoReported = true;
-      } else if (session && kind !== "stall") session.noteAt = now();
+      } else if (session && kind === "stall") session.stallReceiptAt = now();
+      else if (session) session.noteAt = now();
       if (session && session.exitCode === null && kind === "auto" && typeof text === "string") {
         if (!session.autoReported && !session.autoDelivered && !session.autoNote?.tries) session.autoNote = { at: now(), text, tries: 0, retryAt: 0 };
         watchNotes();

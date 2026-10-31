@@ -2734,6 +2734,24 @@ test("a recorded Claude idle pane with a background shell repeats STALLED", asyn
   assert.equal(f.notes.length, 2);
 });
 
+test("a stall receipt counts as delivered when the mailbox response is lost", async (t) => {
+  const f = stallFixture({ notePane: async (mail, scope, text) => {
+    f.notes.push({ text });
+    f.host.attendBot(scope.bot, scope.pane, "stall");
+    throw new Error("Mailbox post failed: timeout");
+  } });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(5 * 60_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(26 * 60_000);
+  assert.equal(f.notes.length, 2);
+});
+
 test("a stall receipt leaves the watcher armed and a plain note stops its repeats", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
