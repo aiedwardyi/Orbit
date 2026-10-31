@@ -40,6 +40,14 @@ describe("harness playbook", () => {
     expect(prompt).not.toContain("%TEMP%");
   });
 
+  it("keeps a built list, checked before feature claims and updated on landing", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("Keep one line per user-facing feature in `built.md`");
+    expect(prompt).toContain("`- Name | where: device, size, setting | files | PRs`");
+    expect(prompt).toContain("then read the code it names. No line: search the code.");
+    expect(prompt).toContain("When you land a user-facing change, add or edit its one line");
+  });
+
   it("verifies a scratch-copy review by its findings and deletes the copy", () => {
     expect(harnessPlaybookPrompt(true)).toContain("A read-only review in a scratch copy has no branch either: instead of the");
   });
@@ -150,7 +158,7 @@ describe("harness playbook", () => {
 
   it("stays within its size budget", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"), "win32").replace(/\r\n/g, "\n");
-    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(12442);
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(12824);
   });
 
   it("fills the worktree path from the configured root", () => {
