@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PHONE_SEEN_MS, PHONE_SEEN_PATH, startPhoneSeen } from "./phone-seen";
+import { PHONE_SEEN_FIRST_MS, PHONE_SEEN_MS, PHONE_SEEN_PATH, startPhoneSeen } from "./phone-seen";
 
 const fetchMock = vi.fn();
 const ids = () => fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).id);
@@ -22,8 +22,10 @@ afterEach(() => {
 });
 
 describe("startPhoneSeen", () => {
-  it("checks in with one kept id on open, every minute and when visible", async () => {
+  it("checks in with one kept id after open, every minute and when visible", async () => {
     startPhoneSeen();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PHONE_SEEN_FIRST_MS);
     expect(fetchMock).toHaveBeenCalledWith(PHONE_SEEN_PATH, expect.objectContaining({ method: "POST" }));
     await vi.advanceTimersByTimeAsync(PHONE_SEEN_MS);
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
