@@ -2,6 +2,11 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.217] - 2026-10-31
+
+### Added
+- Unread chats show a count on the bot's avatar. Mark as Unread shows 1.
+
 ## [1.0.216] - 2026-10-30
 
 ### Added
@@ -363,6 +368,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.217]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.217
 [1.0.216]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.216
 [1.0.215]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.215
 [1.0.214]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.214
