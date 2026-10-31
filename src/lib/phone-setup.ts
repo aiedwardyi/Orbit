@@ -7,6 +7,7 @@ export interface RemotePhoneLink {
     state: "checking" | "disabled" | "missing" | "not-running" | "serve-disabled" | "error" | "ready";
     enableUrl?: string;
   };
+  phones?: { id: string; kind: "android" | "iphone" | "ipad" | "phone"; lastSeen: number }[];
 }
 
 export function remotePhoneSetup(status: RemotePhoneLink | null) {
