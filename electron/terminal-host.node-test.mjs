@@ -6,7 +6,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender, workerShellArgs } from "./terminal-host.mjs";
-import { installOrbitMsg } from "./terminal-mailbox.mjs";
+import { installOrbitMsg, postPaneNote } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 
 function fixture(options = {}) {
@@ -2685,6 +2685,120 @@ for (const [engine, ellipsis] of [["agy", "..."], ["gemini", "…"]]) {
   });
 }
 
+test("a Claude idle shell footer repeats STALLED twice on a 30/60-minute backoff", async (t) => {
+  const f = stallFixture({ notePane: (mail, scope, text) => postPaneNote(mail, scope, text, async (url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.kind, "stall");
+    f.host.attendBot(scope.bot, scope.pane, body.kind);
+    f.notes.push({ text: body.text });
+    return new Response("{}");
+  }) });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell").replace("Brewed for 21s · done 6:26 PM", "Churned for 3m 5s · done 오전 7:30"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  await f.advance(61 * 60_000);
+  assert.equal(f.notes.length, 2);
+  assert.match(f.notes[1].text, /^STALLED: no screen change for 92 min/);
+  await f.advance(61 * 60_000);
+  assert.equal(f.notes.length, 3);
+  assert.match(f.notes[2].text, /^STALLED: no screen change for 153 min/);
+  await f.advance(240 * 60_000);
+  assert.equal(f.notes.length, 3);
+  f.children[0].data(claudeIdle("1 shell").replace("Brewed", "Checked"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 4);
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 5);
+  await f.advance(61 * 60_000);
+  assert.equal(f.notes.length, 6);
+  await f.advance(240 * 60_000);
+  assert.equal(f.notes.length, 6);
+});
+
+test("a recorded Claude idle pane with a background shell repeats STALLED", async (t) => {
+  const recorded = JSON.parse(fs.readFileSync(new URL("../test/fixtures/recorded/claude/idle-background-shell.json", import.meta.url), "utf8"));
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(`\x1b[2J\x1b[H${recorded.reply.screen.join("\r\n")}\r\n`);
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 2);
+});
+
+test("a stall receipt counts as delivered when the mailbox response is lost", async (t) => {
+  const f = stallFixture({ notePane: async (mail, scope, text) => {
+    f.notes.push({ text });
+    f.host.attendBot(scope.bot, scope.pane, "stall");
+    throw new Error("Mailbox post failed: timeout");
+  } });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(5 * 60_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(26 * 60_000);
+  assert.equal(f.notes.length, 2);
+});
+
+test("a stall receipt leaves the watcher armed and a plain note stops its repeats", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  await f.advance(1_000);
+  f.host.attendBot("bot-1", pane.sessionId, "stall");
+  await f.advance(30 * 60_000);
+  assert.equal(f.notes.length, 2);
+  await f.advance(1_000);
+  f.host.attendBot("bot-1", pane.sessionId);
+  await f.advance(240 * 60_000);
+  assert.equal(f.notes.length, 2);
+});
+
+test("STALLED reminders wait 30 minutes and then 60 minutes", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  for (const [minutes, count] of [[30, 1], [60, 2]]) {
+    await f.advance(minutes * 60_000);
+    assert.equal(f.notes.length, count);
+    await f.advance(1);
+    assert.equal(f.notes.length, count + 1);
+  }
+});
+
+test("a report stops pending STALLED repeats", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  await f.advance(31 * 60_000);
+  assert.equal(f.notes.length, 1);
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(240 * 60_000);
+  assert.equal(f.notes.length, 1);
+});
+
 for (const jobs of ["1 shell", "2 shells, 1 monitor"]) {
   test(`a Claude running-shell footer stalls after 30 minutes despite status ticks: ${jobs}`, async (t) => {
     const f = stallFixture();
@@ -2759,6 +2873,28 @@ for (const [name, screen, minutes] of [
 const CLAUDE_LIMIT = "  ⎿  You've hit your session limit · resets 3am (Asia/Seoul)\r\n\r\n  What do you want to do?\r\n  ❯ 1. Stop and wait for limit to reset\r\n    2. Upgrade your plan\r\n";
 const CODEX_LIMIT = "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/\r\ncodex/settings/usage to purchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n";
 const limitNote = (engine, reset, next = 'Send "continue" after the reset, or move the job to another engine') => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. ${next}\\.$`);
+
+for (const [name, command, screen, attended, count] of [
+  ["a busy worker", "claude go", "✻ Working… (1s · esc to interrupt)", false, 1],
+  ["a WAITING menu", "claude go", "Do you want to proceed?\r\n❯ 1. Yes\r\n  2. No", true, 0],
+  ["a usage limit", "claude go", CLAUDE_LIMIT, false, 1],
+  ["Codex capacity", "codex go", codexCapacityScreen(), false, 0],
+]) {
+  test(`STALLED reminders leave ${name} alone`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "W", command });
+    f.children[0].data(screen);
+    await f.settle();
+    if (attended) f.host.attendBot("bot-1", pane.sessionId);
+    await f.advance(121_000);
+    assert.equal(f.notes.length, count);
+    const writes = [...f.children[0].writes];
+    await f.advance(240 * 60_000);
+    assert.equal(f.notes.length, count);
+    assert.deepEqual(f.children[0].writes, writes);
+  });
+}
 
 test("ordinary Markdown ellipses do not discard a completion note", async (t) => {
   const f = stallFixture();

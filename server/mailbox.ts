@@ -18,8 +18,8 @@ const id = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 
 const mailboxScopeSchema = z.object({ pane: id, bot: id, teacher: id });
 
-/** `report` is orbit-msg --report; `auto` is the Stop hook or Codex notify. Absent is a plain note. */
-export const mailboxPostSchema = z.object({ text: z.string(), kind: z.enum(["report", "auto"]).optional() });
+/** `report` is orbit-msg --report; `auto` is an engine hook; `stall` is the watcher. Absent is a plain note. */
+export const mailboxPostSchema = z.object({ text: z.string(), kind: z.enum(["report", "auto", "stall"]).optional() });
 
 export async function deferMailboxAuto(access: TerminalBridgeAccess | null, scope: { bot: string; pane: string }, text: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
   if (!access) return false;

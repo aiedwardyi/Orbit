@@ -137,7 +137,7 @@ describe("harness playbook", () => {
   });
 
   it("keeps worker processes off the user's screen", () => {
-    expect(harnessPlaybookPrompt(true)).toContain("- Keep processes off the user's screen: run in the pane, start background work hidden.");
+    expect(harnessPlaybookPrompt(true)).toContain("- Keep processes off the user's screen: run in the pane, start servers hidden, and wait for checks in the foreground: a hidden process sends no alert when it ends.");
   });
 
   it("carries the four house rules", () => {
@@ -150,7 +150,7 @@ describe("harness playbook", () => {
 
   it("stays within its size budget", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"), "win32").replace(/\r\n/g, "\n");
-    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(12365);
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(12442);
   });
 
   it("fills the worktree path from the configured root", () => {

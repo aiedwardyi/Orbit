@@ -33,6 +33,8 @@ const LIMIT_TAIL_LINES = 30;
 // A failed STALLED post (server restarting) tries again this often, this many times.
 const STALL_RETRY_MS = 60_000;
 const STALL_TRIES = 5;
+const STALL_REPEAT_MS = 30 * 60_000;
+const STALL_REPEATS = 2;
 // A TUI repaints after a resize; that redraw is not the worker moving again.
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
@@ -646,11 +648,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallScreenAt = at;
           session.stallFired = false;
           session.stallTries = 0;
+          session.stallPosts = 0;
+          session.stallRepeatAt = Infinity;
         }
       }
       const capacity = session.engine === "codex" && codexCapacity(session.screen.snapshot({ maxScrollbackChars: 0 }));
       const threshold = capacity ? CODEX_CAPACITY_WAIT_MS : !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
-      if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
+      if (session.stallFired && (limit || capacity || AGENT_BUSY_RE.test(text) || session.stallPosts > STALL_REPEATS || at <= session.stallRepeatAt)) continue;
+      if (at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
       // Typed input can sit in the PTY before the screen echoes it
       if (capacity && session.userInputAt < session.stallChangedAt && session.stallChangedAt - session.capacityContinuedAt >= CODEX_CAPACITY_COOLDOWN_MS) {
         session.capacityContinuedAt = at;
@@ -663,15 +668,26 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
       if (session.reportAt >= session.stallArmedAt) continue;
       if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
+      if (session.stallFired) session.stallTries = 0;
       session.stallFired = true;
+      session.stallRepeatAt = Infinity;
       if (!session.mail) continue;
       if (limitKey) session.limitsNoted.add(limitKey);
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, threshold, session.cwd, session.engine, session.cols))).catch(() => {
+      const elapsed = session.stallPosts ? at - stall : threshold;
+      const sentAt = now();
+      const delivered = () => {
+        if (session.stallChangedAt !== stall) return;
+        session.stallPosts += 1;
+        session.stallRepeatAt = now() + STALL_REPEAT_MS * 2 ** (session.stallPosts - 1);
+      };
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, elapsed, session.cwd, session.engine, session.cols))).then(delivered).catch(() => {
+        // The mailbox can store the note and send its receipt even when the response is lost.
+        if (session.stallReceiptAt >= sentAt) return delivered();
         if (limitKey) session.limitsNoted.delete(limitKey);
-        // a post that did land raises noteAt, which stops the retry above
+        // A LIMIT receipt raises noteAt, which stops the retry above.
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
         session.stallRetryAt = now() + STALL_RETRY_MS;
@@ -954,7 +970,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, stallReceiptAt: -Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       commandInputs: [], commandInput: "", commandUserInput: false, runningCommand: null, shellExecuting: false, historyId: null, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
@@ -1386,7 +1402,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.finished = [];
         session.autoNote = null;
         session.autoReported = true;
-      } else if (session) session.noteAt = now();
+      } else if (session && kind === "stall") session.stallReceiptAt = now();
+      else if (session) session.noteAt = now();
       if (session && session.exitCode === null && kind === "auto" && typeof text === "string") {
         if (!session.autoReported && !session.autoDelivered && !session.autoNote?.tries) session.autoNote = { at: now(), text, tries: 0, retryAt: 0 };
         watchNotes();

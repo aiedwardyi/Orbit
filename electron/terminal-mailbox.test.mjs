@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { mailboxRecipient, mailboxScope, mailboxGrant as serverGrant } from "../server/mailbox.ts";
+import { mailboxPostSchema, mailboxRecipient, mailboxScope, mailboxGrant as serverGrant } from "../server/mailbox.ts";
 import { removeTempDir } from "../server/testing/cleanup.ts";
 import { createTerminalHost } from "./terminal-host.mjs";
 import { installOrbitMsg, mailboxGrant, postPaneNote, terminalPaneEnv } from "./terminal-mailbox.mjs";
@@ -102,7 +102,9 @@ describe("pane notes from Wink", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("http://127.0.0.1:8799/api/mailbox");
     expect(mailboxScope(calls[0].init.headers, "secret")).toEqual({ ok: true, ...scope });
-    expect(JSON.parse(calls[0].init.body)).toEqual({ text: "STALLED: x" });
+    expect(mailboxPostSchema.parse(JSON.parse(calls[0].init.body))).toEqual({ text: "STALLED: x", kind: "stall" });
+    await postPaneNote(mail, scope, "LIMIT: x", async (url, init) => { calls.push({ url, init }); return new Response("{}"); });
+    expect(JSON.parse(calls[1].init.body)).toEqual({ text: "LIMIT: x" });
     await expect(postPaneNote(mail, scope, "x", async () => new Response("{}", { status: 401 }))).rejects.toThrow(/401/);
   });
 
@@ -142,6 +144,7 @@ describe("pane notes from Wink", () => {
       expect(posts).toHaveLength(1);
       expect(posts[0].scope).toEqual({ ok: true, pane: pane.sessionId, bot: "worker-1", teacher: "chief-1" });
       expect(posts[0].body.text).toMatch(/^STALLED: /);
+      expect(posts[0].body.kind).toBe("stall");
     } finally {
       host.dispose();
       await new Promise((resolve) => server.close(resolve));
