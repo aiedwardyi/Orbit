@@ -297,6 +297,7 @@ import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
+import { PhoneVisits } from "./phone-visits.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineBotState, routineRunCard, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -483,6 +484,7 @@ const MAILBOX_SECRET = mailboxSecretFor(process.env.OMB_USER_DATA);
 // unset means loopback-only until a running Tailscale is detected below.
 let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
 
+const phoneVisits = new PhoneVisits(DATA_DIR);
 // Phone access from anywhere through the relay (docs/phone-relay-design.md).
 // Absent unless phoneRelay.base is configured and enabled; it starts only
 // once handleRequest exists, so early static serving is never reachable.
@@ -7490,7 +7492,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, {
         url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null,
         setup: REMOTE_HOST ? { state: "ready" } : remoteRetry.status(),
+        phones: phoneVisits.list(),
       });
+    }
+    // A phone's Wink checks in while open; the PC's own window never counts.
+    if (method === "POST" && path === "/api/phone-seen") {
+      const body = await readBody(req);
+      if (relay || !isLoopbackHost(req.headers.host)) phoneVisits.seen(phone?.id ?? String(body?.id ?? ""), req.headers["user-agent"]);
+      return json(res, 200, { ok: true });
     }
 
     // ── device picker: PCs in the sync folder ──

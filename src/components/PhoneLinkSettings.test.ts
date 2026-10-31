@@ -111,6 +111,44 @@ describe("Phone setup steps", () => {
     expect(document.getElementById(relay.getAttribute("aria-controls")!)?.hidden).toBe(false);
   });
 
+  it("hides the relay link on a remote device, where relay setup is refused", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path === "/api/phone-relay/status") throw new Error("manage phone access on this PC");
+      return { url, setup: { state: "ready" } };
+    });
+    root = createRoot(host);
+    await act(async () => root!.render(createElement(I18nProvider, null, createElement(PhoneLinkSettings))));
+    expect(host.querySelector("[data-phone-link-qr] svg")).not.toBeNull();
+    expect(button("Have a relay setup code?")).toBeUndefined();
+    expect(document.getElementById("phone-relay-settings")).toBeNull();
+  });
+
+  it.each([[false, "smooth"], [true, "auto"]])("scrolls the opened relay form into view and focuses its field (reduced motion %s)", async (reduce, behavior) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: reduce && query.includes("reduce") }));
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    await render({ url: null, setup: { state: "missing" } });
+    await act(async () => button("Have a relay setup code?").click());
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(document.getElementById("phone-relay-settings"));
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest", behavior });
+    expect(document.activeElement).toBe(host.querySelector("[data-phone-access-setup]"));
+    await act(async () => button("Have a relay setup code?").click());
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for a relay form that loads late before scrolling to it", async () => {
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    await render({ url: null, setup: { state: "missing" } });
+    const relay = button("Have a relay setup code?");
+    const box = document.getElementById(relay.getAttribute("aria-controls")!)!;
+    const late = vi.spyOn(box, "firstElementChild", "get").mockReturnValue(null);
+    await act(async () => relay.click());
+    expect(scroll).not.toHaveBeenCalled();
+    late.mockRestore();
+    await act(async () => box.appendChild(document.createElement("span")));
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["focus", "poll"])("refreshes on %s even after ready and stops on unmount", async (trigger) => {
     await render({ url, setup: { state: "ready" } });
     store.api.mockResolvedValue({ url: null, setup: { state: "not-running" } });
@@ -129,14 +167,14 @@ describe("Phone setup steps", () => {
 
   it("does not overlap slow requests and ignores a result after unmount", async () => {
     let finish!: (body: object) => void;
-    store.api.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    store.api.mockImplementation((path: string) => path === "/api/remote-link" ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve({}));
     root = createRoot(host);
     await act(async () => root!.render(createElement(I18nProvider, null, createElement(PhoneLinkSettings))));
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await vi.advanceTimersByTimeAsync(30_000);
     });
-    expect(store.api).toHaveBeenCalledTimes(1);
+    expect(store.api.mock.calls.filter(([path]) => path === "/api/remote-link")).toHaveLength(1);
     await act(async () => root!.unmount());
     root = undefined;
     await act(async () => finish({ url, setup: { state: "ready" } }));
@@ -163,6 +201,43 @@ describe("Phone setup steps", () => {
     visibility.mockReturnValue("visible");
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
     expect(store.api).toHaveBeenCalledTimes(count + 1);
+  });
+
+  it("keeps today's page when no phone has opened Wink", async () => {
+    await render({ url, setup: { state: "ready" }, phones: [] });
+    expect(host.querySelector("[data-phone-list]")).toBeNull();
+    expect(host.querySelector('[data-phone-step="2"]')?.getAttribute("data-complete")).toBe("false");
+    expect(host.querySelector('[data-phone-step="3"]')?.getAttribute("data-complete")).toBe("false");
+    expect(host.querySelector('[data-phone-step="2"]')?.textContent).toContain("2");
+  });
+
+  it.each([
+    ["en", ["Android phone · Active 5m ago", "iPhone · Active now", "Phone · Active 3d ago", "iPad · Active 2h ago"], "A phone has opened Wink"],
+    ["ko", ["Android 휴대폰 · 5분 전 사용", "iPhone · 지금 사용 중", "휴대폰 · 3일 전 사용", "iPad · 2시간 전 사용"], "휴대폰에서 Wink를 열었습니다"],
+  ])("lists phones and checks every step in %s", async (locale, rows, label) => {
+    localStorage.setItem("omb-locale", locale);
+    vi.setSystemTime(1_800_000_000_000);
+    const ago = (ms: number) => 1_800_000_000_000 - ms;
+    await render({ url, setup: { state: "ready" }, phones: [
+      { id: "a", kind: "android", lastSeen: ago(5 * 60_000) },
+      { id: "b", kind: "iphone", lastSeen: ago(30_000) },
+      { id: "c", kind: "phone", lastSeen: ago(3 * 86_400_000) },
+      { id: "d", kind: "ipad", lastSeen: ago(2 * 3_600_000) },
+    ] });
+    expect([...host.querySelectorAll("[data-phone-list] li")].map((row) => row.textContent)).toEqual(rows);
+    for (const step of ["1", "2", "3"]) expect(host.querySelector(`[data-phone-step="${step}"]`)?.getAttribute("data-complete")).toBe("true");
+    expect(host.querySelectorAll(`[aria-label="${label}"]`)).toHaveLength(2);
+    expect(host.querySelector("[data-phone-link-qr] svg")).not.toBeNull();
+    expect(host.textContent).not.toMatch(/Mozilla|\d+\.\d+\.\d+\.\d+/);
+  });
+
+  it("shows a phone as soon as the next refresh sees it", async () => {
+    await render({ url, setup: { state: "ready" } });
+    expect(host.querySelector("[data-phone-list]")).toBeNull();
+    store.api.mockResolvedValue({ url, setup: { state: "ready" }, phones: [{ id: "a", kind: "android", lastSeen: Date.now() }] });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(host.querySelector("[data-phone-list]")?.textContent).toBe("Android phone · Active now");
+    expect(host.querySelector('[data-phone-step="3"]')?.getAttribute("data-complete")).toBe("true");
   });
 
   it("renders all new steps and the relay link in Korean", async () => {

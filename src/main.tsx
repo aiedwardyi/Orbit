@@ -6,6 +6,7 @@ import { applyGeometry, readGeometry } from "./lib/geometry";
 import { applyLocale, readOsLocaleTag, readPreference, resolveLocale } from "./lib/i18n";
 import { startColdOpenTiming } from "./lib/cold-open-timing";
 import { installRendererErrorReports } from "./lib/error-reports";
+import { startPhoneSeen } from "./lib/phone-seen";
 import "./styles.css";
 
 // Before the first paint, not inside a component: stamping the skin during
@@ -19,6 +20,7 @@ if (window.ogb?.platform === "win32") document.documentElement.dataset.orbitCapt
 // Before render: it strips the click time while App still reads the notification target from the url.
 startColdOpenTiming();
 installRendererErrorReports();
+startPhoneSeen();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
