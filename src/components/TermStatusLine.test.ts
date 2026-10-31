@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyLocale } from "@/lib/i18n";
+import { PHONE_QUERY } from "@/lib/phone-swipe";
+import { setUsageMode } from "@/lib/usage-preferences";
 import { StoreProvider, useStore, type Bot, type InstanceInfo, type Message } from "@/state/store";
 
 import { TermStatusLine } from "./TermStatusLine";
@@ -38,10 +40,13 @@ afterEach(async () => {
   unmount = null;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  delete document.documentElement.dataset.skin;
+  applyLocale("en");
+  setUsageMode("remaining");
 });
 
-async function render(current = bot, instance = engine, cwd?: string | null, instances = [instance]) {
-  applyLocale("en");
+async function render(current = bot, instance = engine, cwd?: string | null, instances = [instance], locale: "en" | "ko" = "en", turns?: number) {
+  applyLocale(locale);
   vi.spyOn(Date, "now").mockReturnValue(now);
   vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
   vi.stubGlobal("EventSource", class {
@@ -50,7 +55,7 @@ async function render(current = bot, instance = engine, cwd?: string | null, ins
   let store: ReturnType<typeof useStore>;
   function Harness() {
     store = useStore();
-    return createElement(TermStatusLine, { bot: current, engine: instance, cwd });
+    return createElement(TermStatusLine, { bot: current, engine: instance, cwd, turns });
   }
   const host = document.createElement("div");
   document.body.append(host);
@@ -61,10 +66,147 @@ async function render(current = bot, instance = engine, cwd?: string | null, ins
   };
   await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness))));
   await act(async () => store.dispatch({ type: "instances", instances }));
-  return host;
+  return Object.assign(host, { store: () => store });
+}
+
+function phoneMedia(matches = true) {
+  const media = window.matchMedia(`${PHONE_QUERY} and (pointer: coarse)`);
+  vi.spyOn(window, "matchMedia").mockReturnValue(media);
+  vi.spyOn(media, "matches", "get").mockReturnValue(matches);
+  return media;
 }
 
 describe("TermStatusLine", () => {
+  it.each(["terminal", "terminal-dracula", "terminal-ice", "paper-tape", "logfile", "multiplexer", "modal"])("fits the phone cut for %s in both locales", async (skin) => {
+    phoneMedia();
+    document.documentElement.dataset.skin = skin;
+    for (const locale of ["en", "ko"] as const) {
+      const current = { ...bot, name: "Pokkey Film Production Assistant", messages: [summary("saved", now - 3600_000)] };
+      const instance = {
+        ...engine,
+        models: { default: "old-model", options: [{ id: "old-model", label: "Claude Sonnet 4.6 (Thinking)" }] },
+        rateLimits: { observedAt: new Date(now - 60_000).toISOString(), windows: [
+          { id: "five_hour", usedPercent: 10, resetsAt: now + 60_000 },
+          { id: "seven_day", usedPercent: 71, resetsAt: now + (5 * 24 + 6) * 3600_000 },
+        ] },
+      };
+      const host = await render(current, instance, undefined, [instance], locale, 9999);
+      const status = host.querySelector("[data-term-status]")!;
+      expect(status.getAttribute("data-term-phone")).toBe(skin);
+      expect(status.querySelector("[data-term-model]")?.textContent).toBe(skin === "multiplexer" ? "Sonnet 4.6" : "◆ Sonnet 4.6");
+      expect(status.textContent).not.toMatch(/Claude|Thinking|\/default|low|9999|summary|요약/);
+      const button = status.querySelector("button")!;
+      expect(button.textContent).toContain(locale === "en" ? "7d" : "7일");
+      expect(button.textContent).toContain("29%");
+      expect(button.textContent).toContain(locale === "en" ? "(5d6h)" : "(5일 6시간)");
+      if (skin === "multiplexer") expect(button.textContent).not.toContain(locale === "en" ? "5h" : "5시간");
+      else {
+        expect(button.textContent).toContain(locale === "en" ? "5h" : "5시간");
+        expect(button.textContent).toContain("90%");
+        expect(button.textContent).toContain(locale === "en" ? "(1m)" : "(1분)");
+      }
+      const tab = status.querySelector("[data-term-tab]");
+      expect(tab?.textContent ?? null).toBe(skin === "multiplexer" ? `0:${current.name}*` : null);
+      await act(async () => button.click());
+      expect(host.store().state.appSettingsOpen).toBe(true);
+      expect(host.store().state.appSettingsSection).toBe("usage");
+      await unmount?.();
+      unmount = null;
+    }
+  });
+
+  it.each([
+    ["remaining", 80, 20, "5h", "(1h)", 20],
+    ["remaining", 20, 80, "7d", "(5d6h)", 20],
+    ["remaining", 80, 80, "5h", "(1h)", 20],
+    ["remaining", 100, 120, "5h", "(1h)", 0],
+    ["used", 80, 20, "5h", "(1h)", 80],
+    ["used", 20, 80, "7d", "(5d6h)", 80],
+    ["used", 80, 80, "5h", "(1h)", 80],
+    ["used", 100, 120, "5h", "(1h)", 100],
+  ] as const)("selects the tighter window in %s mode (%i session / %i weekly used -> %s)", async (mode, session, weekly, label, reset, percent) => {
+    phoneMedia();
+    document.documentElement.dataset.skin = "multiplexer";
+    setUsageMode(mode);
+    const host = await render(bot, {
+      ...engine,
+      rateLimits: { ...engine.rateLimits!, windows: [
+        { id: "seven_day", usedPercent: weekly, resetsAt: now + (5 * 24 + 6) * 3600_000 },
+        { id: "five_hour", usedPercent: session, resetsAt: now + 3600_000 },
+      ] },
+    });
+    const button = host.querySelector("button")!;
+    expect(button.textContent).toContain(label);
+    expect(button.textContent).toContain(reset);
+    expect(button.textContent).toContain(`${percent}%`);
+    expect(button.textContent).not.toContain(label === "5h" ? "7d" : "5h");
+  });
+
+  it.each(["multiplexer", "modal"])("keeps a weekly-only report in %s", async (skin) => {
+    phoneMedia();
+    document.documentElement.dataset.skin = skin;
+    const host = await render(bot, {
+      ...engine,
+      rateLimits: { ...engine.rateLimits!, windows: [{ id: "seven_day", usedPercent: 71, resetsAt: now + (5 * 24 + 6) * 3600_000 }] },
+    });
+    const button = host.querySelector("button")!;
+    expect(button.textContent).toContain("7d");
+    expect(button.textContent).toContain("29% (5d6h)");
+    expect(button.textContent).not.toContain("5h");
+  });
+
+  it("falls back to the session meter when there is no weekly window", async () => {
+    phoneMedia();
+    const host = await render();
+    expect(host.querySelector("[data-term-phone] button")?.textContent).toContain("5h");
+    expect(host.querySelector("button")?.textContent).toContain("29%");
+    expect(host.querySelector("button")?.textContent).toContain("(1m)");
+  });
+
+  it("drops the graphic before the meter text and restores it when space returns", async () => {
+    const media = phoneMedia();
+    document.documentElement.dataset.skin = "multiplexer";
+    const natural = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+    const host = await render();
+    const status = host.querySelector("[data-term-status]")!;
+    expect(status.getAttribute("data-term-bars")).toBe("off");
+    expect(status.querySelector("button")?.textContent).toContain("29% (1m)");
+    natural.mockReturnValue(320);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(status.hasAttribute("data-term-bars")).toBe(false);
+    natural.mockReturnValue(400);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    vi.spyOn(media, "matches", "get").mockReturnValue(false);
+    await act(async () => media.dispatchEvent(new Event("change")));
+    expect(status.hasAttribute("data-term-bars")).toBe(false);
+    expect(status.hasAttribute("data-term-phone")).toBe(false);
+  });
+
+  it("keeps a stale phone reading accessible when the visual age is omitted", async () => {
+    phoneMedia();
+    const host = await render(bot, { ...engine, driverKind: "museAgent", rateLimits: { ...engine.rateLimits!, observedAt: new Date(now - 4 * 86400_000).toISOString() } });
+    const button = host.querySelector("button")!;
+    const age = host.querySelector(`[id="${button.getAttribute("aria-describedby")}"]`)!;
+    expect(age.textContent).toBe("Last seen 4d ago");
+    expect(age.className).toBe("sr-only");
+    expect(button.className).toContain("text-ink-secondary");
+  });
+
+  it.each([false, true])("keeps desktop markup when the phone query is %s and restores it on resize", async (matches) => {
+    const media = phoneMedia(matches);
+    const host = await render();
+    if (matches) {
+      expect(host.querySelector("[data-term-phone]")).not.toBeNull();
+      vi.spyOn(media, "matches", "get").mockReturnValue(false);
+      await act(async () => media.dispatchEvent(new Event("change")));
+    }
+    expect(host.querySelector("[data-term-phone]")).toBeNull();
+    expect(host.textContent).toContain("Old model");
+    expect(host.textContent).toContain("/default");
+    expect(host.textContent).toContain("no summary yet");
+  });
+
   it("mutes and describes a stale Muse reading with its age", async () => {
     const host = await render(bot, { ...engine, driverKind: "museAgent", rateLimits: { ...engine.rateLimits!, observedAt: new Date(now - 4 * 86400_000).toISOString() } });
     const button = host.querySelector("button")!;
