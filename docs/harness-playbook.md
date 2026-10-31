@@ -175,6 +175,15 @@ A read-only review in a scratch copy has no branch either: instead of the
 steps above, check its findings against the files it cites, then delete the
 scratch copy.
 
+## Built list
+
+Keep one line per user-facing feature in `built.md` (project notes, else repo
+`docs/`): `- Name | where: device, size, setting | files | PRs`.
+
+- Before you say a feature exists, works a certain way, or is missing, grep
+  built.md, then read the code it names.
+- When you land a user-facing change, add or edit its one line in the same step.
+
 ## Reports
 
 {{REPORTS}}
