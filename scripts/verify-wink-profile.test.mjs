@@ -54,7 +54,7 @@ afterEach(() => {
   for (const dir of temporaryDirectories.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("verify-wink profile profile", () => {
+describe("verify-wink seed-profile", () => {
   it("keeps the sidebar profile in profile order", () => {
     const { bots, groups } = readSeedProfile(fixture());
     expect(bots.map((bot) => bot.name)).toEqual(Array.from({ length: 16 }, (_, at) => `Bot ${at + 1}`));

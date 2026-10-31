@@ -716,9 +716,13 @@ async function seedFromProfile(state) {
     const room = (await api(state, "GET", "/api/bots?messages=0")).groups.find((entry) => entry.id === id);
     return !room?.working && !room?.busyBotId;
   };
-  for (const room of rooms) {
-    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, "plan the next step", quiet(room.id));
-    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, "compare desktop and phone [two]", quiet(room.id));
+  for (const [at, room] of rooms.entries()) {
+    const group = profile.groups[at];
+    // A mentions-only room answers nothing untagged, so tag a visible member.
+    const named = group.responder === "mentions" && group.members.map((index) => profile.bots[index]).find((bot) => !bot.hidden);
+    const tag = named ? `@${named.name} ` : "";
+    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, `${tag}plan the next step`, quiet(room.id));
+    await converse(state, room.threadId, `/api/groups/${room.id}/messages`, `${tag}compare desktop and phone [two]`, quiet(room.id));
   }
   say(`chats: ${bots.length} bots x 6 messages (image, reactions, code block, 2-line reply), ${rooms.length} rooms x 2 turns (${secs(started)}s)`);
 }
