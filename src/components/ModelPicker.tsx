@@ -16,6 +16,7 @@ import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { modelDialEnabled } from "@/lib/feature-flags";
+import { loadModelPickerView, saveModelPickerView } from "@/lib/model-picker-view";
 import { ModelDial, useModelDialFits, type ModelDialHandle } from "./ModelDial";
 import "./ModelPicker.css";
 
@@ -60,8 +61,13 @@ export function ModelPickerControl({
   useBackLayer(open && customOpen, () => setCustomOpen(false));
   const [query, setQuery] = useState("");
   const dialFits = useModelDialFits(dial);
-  const [listView, setListView] = useState(false);
+  const [listView, setListView] = useState(() => loadModelPickerView() === "list");
   const dialView = dial && dialFits && !listView;
+  useEffect(() => {
+    if (!presence.mounted) return;
+    void window.ogb?.setModelPickerBackground?.(dialView ? "dial" : "list")?.catch(() => undefined);
+    return () => { void window.ogb?.setModelPickerBackground?.(null)?.catch(() => undefined); };
+  }, [presence.mounted, dialView]);
   const dialRef = useRef<ModelDialHandle>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -114,7 +120,7 @@ export function ModelPickerControl({
   const show = (viaShortcut = false, switching = false) => {
     setDraft(selection);
     setCustomOpen(false);
-    setListView(false);
+    setListView(loadModelPickerView() === "list");
     setQuery("");
     focusComposerAfterCloseRef.current = false;
     openedWithShortcutRef.current = viaShortcut;
@@ -226,13 +232,15 @@ export function ModelPickerControl({
     if (!open) return;
     const stage = stageRef.current!;
     const resize = () => setStageWidth(stage.getBoundingClientRect().width);
-    resize();
-    const observer = new window.ResizeObserver(resize);
-    observer.observe(stage);
+    if (!dialView) resize();
+    const observer = dialView ? null : new window.ResizeObserver(([entry]) => {
+      if (entry) setStageWidth(entry.contentRect.width);
+    });
+    observer?.observe(stage);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       document.body.style.overflow = overflow;
     };
   }, [open, dialView]);
@@ -338,7 +346,10 @@ export function ModelPickerControl({
       >
         <header className="model-cross-header">
           <h2 className="sr-only">{t("model.choose")}</h2>
-          {dial && dialFits && <button type="button" className="model-dial-view" onClick={() => setListView(!listView)}>{t(listView ? "model.dial.dial" : "model.dial.list")}</button>}
+          {dial && dialFits && <button type="button" className="model-dial-view" onClick={() => {
+            setListView(!listView);
+            saveModelPickerView(listView ? "dial" : "list");
+          }}>{t(listView ? "model.dial.dial" : "model.dial.list")}</button>}
           <button data-picker-action type="button" onClick={close} aria-label={t("createBot.cancel")}><X size={18} /></button>
         </header>
         {dialView ? <ModelDial rows={rows} draft={draft} canCommit={canCommit} onDraft={pick} onSave={save} handle={dialRef} stageRef={stageRef} bindingsId={bindingsId} /> : <>

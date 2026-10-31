@@ -160,8 +160,8 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
   }, []);
 
   useEffect(() => {
-    const [width, height] = phone ? [390, 844] : [1440, 900];
-    const fit = () => setZoom(Math.min(window.innerWidth / width, window.innerHeight / height));
+    if (!phone) return;
+    const fit = () => setZoom(Math.min(window.innerWidth / 390, window.innerHeight / 844));
     fit();
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
@@ -322,7 +322,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
 
   const gauges = [...new Set(models.map((model) => pickerEfforts(model, model.cell).length))].filter((n) => n > 0);
   const stageStyle = {
-    zoom,
+    zoom: phone ? zoom : undefined,
     "--t": `${labMs}ms`,
     "--turn": turn,
     "--lab": labTurn,

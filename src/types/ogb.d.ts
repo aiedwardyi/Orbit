@@ -267,6 +267,7 @@ type SkillRecordingPayload = {
       openExternal?(url: string): Promise<boolean>;
       /** Recolor the native window chrome for a skin; absent on older builds. */
       applySkin?(skin: string): Promise<boolean>;
+      setModelPickerBackground?(view: "dial" | "list" | null): Promise<boolean>;
       /** Installed app version, from the main process. */
       getAppVersion?(): Promise<string>;
       startFresh?(): Promise<void>;
