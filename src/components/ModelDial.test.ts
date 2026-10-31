@@ -35,6 +35,30 @@ function media({ wide = true, reduced = false, phone = false } = {}) {
   }));
 }
 
+function mouse(width: number, height = 900) {
+  const screen = { width, height, changes: new Set<(event: Event) => void>() };
+  const fits = (query: string) => query.split(", ").some((part) => part.split(" and ").every((term) => {
+    const [, name, value] = /\(([\w-]+): ([\w./]+)\)/.exec(term)!;
+    if (name === "max-aspect-ratio") return screen.width * Number(value.split("/")[1]) <= screen.height * Number(value.split("/")[0]);
+    return name === "pointer" ? value === "fine" : name === "max-width" ? screen.width <= parseFloat(value) : name === "min-width" ? screen.width >= parseFloat(value) : false;
+  }));
+  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+    get matches() { return fits(query); },
+    media: query,
+    onchange: null,
+    addEventListener: (_: string, change: (event: Event) => void) => void screen.changes.add(change),
+    removeEventListener: (_: string, change: (event: Event) => void) => void screen.changes.delete(change),
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }));
+  return (next: number) => act(async () => {
+    screen.width = next;
+    screen.changes.forEach((change) => change(new Event("change")));
+    window.dispatchEvent(new Event("resize"));
+  });
+}
+
 async function mount({ grokSignedIn = true, dial = true, model = "claude-opus-5-5" } = {}) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -67,19 +91,19 @@ async function settle() {
   for (let i = 0; i < 60; i++) await wait(20);
 }
 
-async function pointer(type: string, x: number, y: number) {
+async function pointer(type: string, x: number, y: number, pointerType = "touch") {
   await act(async () => {
-    document.querySelector(".dial-stage")!.dispatchEvent(new window.PointerEvent(type, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    document.querySelector(".dial-stage")!.dispatchEvent(new window.PointerEvent(type, { pointerId: 1, pointerType, isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
   });
 }
 
-async function drag(dx: number, dy: number, moves = 4, ms = 30) {
-  await pointer("pointerdown", 200, 400);
+async function drag(dx: number, dy: number, moves = 4, ms = 30, pointerType = "touch") {
+  await pointer("pointerdown", 200, 400, pointerType);
   for (let i = 1; i <= moves; i++) {
     await wait(ms);
-    await pointer("pointermove", 200 + dx * i / moves, 400 + dy * i / moves);
+    await pointer("pointermove", 200 + dx * i / moves, 400 + dy * i / moves, pointerType);
   }
-  await pointer("pointerup", 200 + dx, 400 + dy);
+  await pointer("pointerup", 200 + dx, 400 + dy, pointerType);
 }
 
 const order = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gpt-6-luna", "grok-4.7"];
@@ -240,6 +264,57 @@ describe("ModelDial", () => {
     media();
     await key("ArrowDown");
     expect(document.querySelector(".dial-plane")?.hasAttribute("data-open")).toBe(false);
+  });
+
+  describe("in a mouse window", () => {
+    const vertical = () => document.querySelector(".dial-stage")?.hasAttribute("data-phone");
+
+    it("keeps the wide dial when wide or short", async () => {
+      for (const [width, height] of [[1440, 900], [1024, 600]]) {
+        mouse(width, height);
+        await mount();
+        expect(vertical()).toBe(false);
+        await act(async () => root.unmount());
+        vi.restoreAllMocks();
+      }
+    });
+
+    it("takes the vertical dial when narrow", async () => {
+      for (const [width, height] of [[1000, 900], [700, 900], [480, 900], [600, 300]]) {
+        mouse(width, height);
+        await mount();
+        expect(vertical()).toBe(true);
+        expect(document.querySelector(".model-dial-view")?.textContent).toBe("List View");
+        await act(async () => root.unmount());
+        vi.restoreAllMocks();
+      }
+    });
+
+    it("turns models with a mouse drag when narrow", async () => {
+      Element.prototype.setPointerCapture = () => undefined;
+      mouse(700);
+      await mount();
+      await drag(0, -60, 4, 60, "mouse");
+      await settle();
+      expect(selected()).toBe("claude-sonnet-5-5");
+    });
+
+    it("swaps layouts on resize and keeps the pick and the view", async () => {
+      const resize = mouse(1440);
+      await mount();
+      await key("ArrowDown");
+      await key("ArrowLeft");
+      await resize(700);
+      expect(vertical()).toBe(true);
+      expect([selected(), effort()]).toEqual(["claude-sonnet-5-5", "medium"]);
+      await resize(1440);
+      expect(vertical()).toBe(false);
+      expect([selected(), effort()]).toEqual(["claude-sonnet-5-5", "medium"]);
+      await act(async () => document.querySelector<HTMLButtonElement>(".model-dial-view")!.click());
+      await resize(700);
+      expect(document.querySelector(".model-dial")).toBeNull();
+      expect(document.querySelector(".model-dial-view")?.textContent).toBe("Dial View");
+    });
   });
 
   describe("on a phone", () => {
