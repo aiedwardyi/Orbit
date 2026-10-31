@@ -107,7 +107,7 @@ const remoteTerminal = (botId: string, live: { ids: string[] }): typeof fetch =>
   };
 };
 
-const chipLabel = (host: HTMLElement) => host.querySelector("[data-worker-status]")?.getAttribute("aria-label") ?? null;
+const chipLabel = (host: HTMLElement) => host.querySelector("[data-worker-strip]")?.getAttribute("aria-label") ?? null;
 
 describe("worker chip liveness", () => {
   it("lists nothing on a first desktop visit until readBot answers", async () => {
@@ -116,9 +116,9 @@ describe("worker chip liveness", () => {
     const { host, unmount } = await mountChat(fresh);
     try {
       await vi.waitFor(() => expect(resolvers.has("chip-fresh")).toBe(true));
-      expect(host.querySelector("[data-worker-status]")).toBeNull();
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
       await answer(resolvers, "chip-fresh", ["f1ffffff-1"]);
-      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 worker"));
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers"));
     } finally {
       await unmount();
     }
@@ -131,12 +131,12 @@ describe("worker chip liveness", () => {
     const { host, unmount } = await mountChat(botA);
     try {
       await answer(resolvers, "chip-a", ["a1aaaaaa-1"]);
-      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 worker"));
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers"));
       await act(async () => switchBot(botB));
       await answer(resolvers, "chip-b", ["b1bbbbbb-1"]);
-      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 worker"));
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers"));
       await act(async () => switchBot(botA));
-      expect(chipLabel(host)).toBe("1 worker");
+      expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
     } finally {
       await unmount();
     }
@@ -149,12 +149,12 @@ describe("worker chip liveness", () => {
     const { host, unmount } = await mountChat(seven);
     try {
       await answer(resolvers, "chip-seven", ids);
-      await vi.waitFor(() => expect(chipLabel(host)).toBe("7 workers"));
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("7 working, 0 waiting, 0 failed, 0 done. Show workers"));
       await act(async () => {
         for (const cb of exits) cb({ botId: "chip-seven", id: ids[6]! });
         await sleep(10);
       });
-      await vi.waitFor(() => expect(chipLabel(host)).toBe("6 workers"));
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("6 working, 0 waiting, 0 failed, 0 done. Show workers"));
     } finally {
       await unmount();
     }
@@ -169,14 +169,14 @@ describe("worker chip liveness", () => {
       const { host, unmount } = await mountChat(remote, remoteTerminal("chip-remote", live));
       try {
         await act(async () => seedBadge({ "chip-remote": ids.map((id) => `L-${id}`) }));
-        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 workers"));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
         expect(badgeOf("chip-remote")).toHaveLength(3);
         live.ids = ids.slice(0, 2);
         await act(async () => {
           document.dispatchEvent(new Event("visibilitychange"));
           await sleep(10);
         });
-        await vi.waitFor(() => expect(chipLabel(host)).toBe("2 workers"));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("2 working, 0 waiting, 0 failed, 0 done. Show workers"));
         expect(badgeOf("chip-remote")).toEqual(ids.slice(0, 2).map((id) => `L-${id}`));
       } finally {
         await unmount();
@@ -188,7 +188,7 @@ describe("worker chip liveness", () => {
       const { host, unmount } = await mountChat(bare, remoteTerminal("chip-bare", { ids }));
       try {
         await act(async () => seedBadge({ "chip-bare": ids.map((id) => `L-${id}`) }));
-        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 workers"));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
       } finally {
         await unmount();
       }
