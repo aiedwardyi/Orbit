@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
-import { hapticTick, lockAxis, reducedMotion, type SwipeAxis } from "./phone-swipe";
+import { lockAxis, reducedMotion, type SwipeAxis } from "./phone-swipe";
 
 const SHIFT_PX = 40;
 const SAMPLE_MS = 100;
@@ -24,7 +24,6 @@ export function useDialTouch(ref: RefObject<HTMLElement | null>, enabled: boolea
     if (!state.pending) return;
     state.done += state.pending;
     state.pending = 0;
-    hapticTick();
     state.run();
   }, [index]);
 
