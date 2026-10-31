@@ -248,7 +248,7 @@ if ($args.Count -ne 1 -or [string]$args[0] -cnotmatch '^[A-Z0-9][A-Z0-9-]{0,63}$
 }
 try {
   if (-not $env:TEMP) { throw 'TEMP is not set' }
-  $temp = (Resolve-Path -LiteralPath $env:TEMP).ProviderPath.TrimEnd([IO.Path]::DirectorySeparatorChar)
+  $temp = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $env:TEMP).ProviderPath).TrimEnd([IO.Path]::DirectorySeparatorChar)
   $target = [IO.Path]::GetFullPath([IO.Path]::Combine($temp, 'wink-' + $args[0]))
   if (-not [string]::Equals([IO.Path]::GetDirectoryName($target), $temp, [StringComparison]::OrdinalIgnoreCase)) { throw 'scratch must be directly inside TEMP' }
   if (-not (Test-Path -LiteralPath $target)) {
