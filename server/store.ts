@@ -187,7 +187,7 @@ export interface Message {
    * "message" and "reply" carry the sent message or the reply as `text`, except
    * a "message" chip in the channel itself, which shows it already; "from" is the
    * receiving side's chip and has none. */
-  comm?: { groupId: string; withBotId: string; withName: string; withColor: string; peer?: "message" | "reply" | "from" };
+  comm?: { groupId: string; withBotId: string; withName: string; withColor: string; peer?: "message" | "reply" | "from"; wake?: true };
   /** user messages sent while the bot was mid-turn, waiting in the
    * steer-queue to auto-send on settle. Cleared when the drain consumes
    * them; a true stranded by a restart is inert because the client only

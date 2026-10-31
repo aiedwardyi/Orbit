@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
@@ -33,6 +33,8 @@ const LIMIT_TAIL_LINES = 30;
 // A failed STALLED post (server restarting) tries again this often, this many times.
 const STALL_RETRY_MS = 60_000;
 const STALL_TRIES = 5;
+const STALL_REPEAT_MS = 30 * 60_000;
+const STALL_REPEATS = 2;
 // A TUI repaints after a resize; that redraw is not the worker moving again.
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
@@ -319,16 +321,30 @@ function exitNoteText(screenText, exitCode) {
   return tail ? `${text} Last lines:\n${tail}` : text;
 }
 
-// This -EncodedCommand lands in history, so the first prompt only records the id; Write-Error keeps a failed $? for the user's prompt.
+function commandHash(command) {
+  return createHash("sha256").update(command.trim()).digest("base64");
+}
+
+// Wrap the existing reader without loading a module; Write-Error preserves a failed $? for the user's prompt.
 export function workerShellArgs(id) {
   const script = `$global:OrbitPrompt = $function:prompt
-$global:OrbitHistoryId = -1
+$global:OrbitReadLine = $null
+$global:OrbitHash = $null
 function global:prompt {
   $ok = $?
   $last = Get-History -Count 1
   $last = if ($last) { $last.Id } else { 0 }
-  if ($global:OrbitHistoryId -ne -1 -and $last -ne $global:OrbitHistoryId) { [Console]::Write("$([char]27)]133;D;${id}$([char]7)") }
-  $global:OrbitHistoryId = $last
+  [Console]::Write("$([char]27)]133;D;${id};$last$([char]7)")
+  if (-not $global:OrbitReadLine -and $function:PSConsoleHostReadLine) {
+    $global:OrbitReadLine = $function:PSConsoleHostReadLine
+    function global:PSConsoleHostReadLine {
+      $line = & $global:OrbitReadLine
+      if (-not $global:OrbitHash) { $global:OrbitHash = [Security.Cryptography.SHA256]::Create() }
+      $hash = [Convert]::ToBase64String($global:OrbitHash.ComputeHash([Text.Encoding]::UTF8.GetBytes(([string]$line).Trim())))
+      [Console]::Write("$([char]27)]133;C;${id};$hash$([char]7)")
+      $line
+    }
+  }
   if (-not $ok) { Write-Error '' -ErrorAction Ignore }
   & $global:OrbitPrompt
 }`;
@@ -632,11 +648,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallScreenAt = at;
           session.stallFired = false;
           session.stallTries = 0;
+          session.stallPosts = 0;
+          session.stallRepeatAt = Infinity;
         }
       }
       const capacity = session.engine === "codex" && codexCapacity(session.screen.snapshot({ maxScrollbackChars: 0 }));
       const threshold = capacity ? CODEX_CAPACITY_WAIT_MS : !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
-      if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
+      if (session.stallFired && (limit || capacity || AGENT_BUSY_RE.test(text) || session.stallPosts > STALL_REPEATS || at <= session.stallRepeatAt)) continue;
+      if (at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
       // Typed input can sit in the PTY before the screen echoes it
       if (capacity && session.userInputAt < session.stallChangedAt && session.stallChangedAt - session.capacityContinuedAt >= CODEX_CAPACITY_COOLDOWN_MS) {
         session.capacityContinuedAt = at;
@@ -649,15 +668,26 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
       if (session.reportAt >= session.stallArmedAt) continue;
       if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
+      if (session.stallFired) session.stallTries = 0;
       session.stallFired = true;
+      session.stallRepeatAt = Infinity;
       if (!session.mail) continue;
       if (limitKey) session.limitsNoted.add(limitKey);
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, threshold, session.cwd, session.engine, session.cols))).catch(() => {
+      const elapsed = session.stallPosts ? at - stall : threshold;
+      const sentAt = now();
+      const delivered = () => {
+        if (session.stallChangedAt !== stall) return;
+        session.stallPosts += 1;
+        session.stallRepeatAt = now() + STALL_REPEAT_MS * 2 ** (session.stallPosts - 1);
+      };
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, elapsed, session.cwd, session.engine, session.cols))).then(delivered).catch(() => {
+        // The mailbox can store the note and send its receipt even when the response is lost.
+        if (session.stallReceiptAt >= sentAt) return delivered();
         if (limitKey) session.limitsNoted.delete(limitKey);
-        // a post that did land raises noteAt, which stops the retry above
+        // A LIMIT receipt raises noteAt, which stops the retry above.
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
         session.stallRetryAt = now() + STALL_RETRY_MS;
@@ -940,18 +970,37 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, stallPosts: 0, stallRepeatAt: Infinity, stallReceiptAt: -Infinity, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      commandInputs: [], commandInput: "", commandUserInput: false, runningCommand: null, shellExecuting: false, historyId: null, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
-      if (!session.botPane || osc !== `133;D;${session.id}`) return;
-      session.worker = false;
-      paneRuns?.ended(session.id);
-      session.autoNote = null;
-      session.autoDelivered = true;
-      if (!session.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
-      session.reported = false;
+      if (!session.botPane) return;
+      const [kind, markerId, value] = osc.startsWith("133;") ? osc.slice(4).split(";") : [];
+      if (markerId !== session.id) return;
+      if (kind === "C" && /^[A-Za-z0-9+/]{43}=$/.test(value)) {
+        session.shellExecuting = true;
+        // Input consumed by a program never reaches the shell's reader.
+        const index = session.commandInputs.findIndex((command) => command.hash === value);
+        session.runningCommand = index !== -1 ? session.commandInputs.splice(0, index + 1).at(-1) : null;
+        if (session.commandUserInput) session.runningCommand = null;
+        session.commandUserInput = false;
+        return;
+      }
+      if (kind !== "D" || !/^\d+$/.test(value)) return;
+      if (session.shellExecuting) {
+        session.worker = false;
+        paneRuns?.ended(session.id);
+        session.autoNote = null;
+        session.autoDelivered = true;
+      }
+      session.shellExecuting = false;
+      const command = session.runningCommand;
+      if (session.historyId !== null && value !== session.historyId && command && !command.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
+      session.historyId = value;
+      session.runningCommand = null;
+      session.commandInput = "";
+      session.commandUserInput = false;
     });
     if (botPane) watchNotes();
     session.generation = (generations.get(key) ?? 0) + 1;
@@ -993,6 +1042,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     clearActivityTimer(session);
     const echo = inputEchoText(text);
     const submit = isSubmitInput(text);
+    const commands = `${session.commandInput}${text}`.split("\r");
+    if (submit && !text.includes("\r")) commands.push("");
+    session.commandInput = commands.pop().slice(-INPUT_ECHO_LIMIT);
+    for (const command of commands) {
+      if (command.trim()) session.commandInputs.push({ hash: commandHash(command), reported: false });
+    }
     // only a command the user typed arms their alert
     if (submit) {
       clearTimeout(session.claudeTrustTimer);
@@ -1170,6 +1225,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const submit = mouse ? false : isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
       if (echo || submit) {
+        if (session.botPane && !session.runningCommand) session.commandUserInput = true;
         clearActivityTimer(session);
         session.userInputAt = now();
       }
@@ -1341,12 +1397,13 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
       if (session && kind === "report") {
         session.reportAt = now();
-        session.reported = true;
+        if (session.runningCommand) session.runningCommand.reported = true;
         paneRuns?.reported(session.id);
         session.finished = [];
         session.autoNote = null;
         session.autoReported = true;
-      } else if (session) session.noteAt = now();
+      } else if (session && kind === "stall") session.stallReceiptAt = now();
+      else if (session) session.noteAt = now();
       if (session && session.exitCode === null && kind === "auto" && typeof text === "string") {
         if (!session.autoReported && !session.autoDelivered && !session.autoNote?.tries) session.autoNote = { at: now(), text, tries: 0, retryAt: 0 };
         watchNotes();

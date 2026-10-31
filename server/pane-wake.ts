@@ -1,4 +1,4 @@
-import type { Message } from "./store.ts";
+import type { Message, Store } from "./store.ts";
 
 export const PANE_WAKE_PROMPT = "A pane note arrived. Act on it.";
 export const PANE_WAKE_DEBOUNCE_MS = 3_000;
@@ -6,7 +6,7 @@ export const PANE_WAKE_HOURLY_CAP = 20;
 const HOUR_MS = 60 * 60 * 1000;
 
 export interface PaneWakeDeps {
-  enabled(botId: string): boolean;
+  enabled(botId: string, threadId: string): boolean;
   busy(botId: string, threadId: string): boolean;
   paused?(botId: string): boolean;
   /** A user turn since the note already delivered it. */
@@ -20,12 +20,31 @@ export interface PaneWakeDeps {
   now?(): number;
 }
 
+export function isWakeNote(message: Message): boolean {
+  return message.kind === "note" || (message.kind === "activity" && message.comm?.peer === "reply" && message.comm.wake === true);
+}
+
+export function paneWakeEnabled(store: Store, botId: string, threadId: string): boolean {
+  const bot = store.bot(botId);
+  if (!bot) return false;
+  if (bot.shareTerminalWithChat !== false) return true;
+  const task = store.taskByThread(botId, threadId);
+  const messages = store.activePath(threadId);
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.id === task?.paneNotesDeliveredId || message.id === task?.paneNotesSkippedId) break;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
+    if (message.kind === "activity" && isWakeNote(message) && message.text?.trim()) return true;
+  }
+  return false;
+}
+
 export function hasLocalUndeliveredPaneNote(messages: Message[], deliveredId: string | undefined, deviceId: string, skippedId?: string): boolean {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.id === deliveredId || message.id === skippedId) break;
     if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
-    if (message.kind === "note" && message.text?.trim() && message.origin === deviceId) return true;
+    if (isWakeNote(message) && message.text?.trim() && message.origin === deviceId) return true;
   }
   return false;
 }
@@ -52,7 +71,7 @@ export class PaneWakeScheduler {
   }
 
   noteArrived(botId: string, threadId: string, paneId?: string): void {
-    if (!this.deps.enabled(botId) || this.deps.paused?.(botId)) return;
+    if (!this.deps.enabled(botId, threadId) || this.deps.paused?.(botId)) return;
     const key = `${botId}\0${threadId}`;
     const entry = this.pending.get(key) ?? { botId, threadId, timer: null, panes: new Set(), unknownPane: false, notes: 0, checking: false };
     if (paneId) entry.panes.add(paneId);
@@ -88,7 +107,7 @@ export class PaneWakeScheduler {
     if (entry.checking) return;
     const { botId, threadId } = entry;
     if (this.deps.busy(botId, threadId)) return;
-    if (!this.deps.enabled(botId) || this.deps.paused?.(botId) || !this.deps.hasNotes(threadId)) {
+    if (!this.deps.enabled(botId, threadId) || this.deps.paused?.(botId) || !this.deps.hasNotes(threadId)) {
       this.pending.delete(key);
       return;
     }
@@ -116,7 +135,7 @@ export class PaneWakeScheduler {
     entry.timer = null;
     if (this.deps.busy(botId, threadId)) return;
     this.pending.delete(key);
-    if (!this.deps.enabled(botId) || this.deps.paused?.(botId) || !this.deps.hasNotes(threadId)) return;
+    if (!this.deps.enabled(botId, threadId) || this.deps.paused?.(botId) || !this.deps.hasNotes(threadId)) return;
     if (closed) return this.deps.skipped?.(botId, threadId);
     this.wake(key, entry);
   }

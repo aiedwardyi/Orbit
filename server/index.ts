@@ -135,7 +135,7 @@ import {
 import { BUSY_RESUME_DELAYS_MS, retryLine } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
-import { clearAskBudget } from "./comms-budget.ts";
+import { clearAskBudget, clearDelegationWakeBudget } from "./comms-budget.ts";
 import "./comms-visibility.ts";
 import type { CommsBus } from "./comms-visibility.ts";
 import "./message-db.ts";
@@ -237,7 +237,7 @@ import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxRecipient, mailboxScope, mailboxSecretFor, readMailboxBody } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
-import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, isWakeNote, paneWakeEnabled, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
 import { LimitWaits } from "./limit-wait.ts";
 import {
@@ -4048,11 +4048,9 @@ function paneNotesPending(threadId: string): boolean {
 }
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
-// keeps it from reading as the user's words. Not unattended: the wake only
-// fires for a bot whose owner turned on share-terminal, and its auto mode is
-// the whole point of acting on worker reports; destructive/sensitive still card.
+// keeps it from reading as the user's words; destructive/sensitive still card.
 const paneWake = new PaneWakeScheduler({
-  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
+  enabled: (botId, threadId) => paneWakeEnabled(store, botId, threadId),
   paused: (botId) => store.bot(botId)?.paneWakePaused === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId) || limitWaits.held(botId),
   hasNotes: paneNotesPending,
@@ -4062,7 +4060,7 @@ const paneWake = new PaneWakeScheduler({
   },
   // The note stays undelivered for the next user turn; the marker only keeps a restart from waking for it.
   skipped: (botId, threadId) => {
-    const newest = store.activePath(threadId).findLast((message) => message.kind === "note");
+    const newest = store.activePath(threadId).findLast(isWakeNote);
     if (newest) store.markPaneNotesSkipped(botId, threadId, newest.id);
   },
   wake: (botId, threadId) => {
@@ -4475,6 +4473,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // (askBotAndWait) never clears a live wait that is not being replaced.
   markChatLatency({ sendId: latencySendId, threadId }, "turn.dispatch");
   broadcast({ kind: "turn.dispatch", threadId, createdAt: new Date().toISOString() });
+  if (turnStartedByUser(opts)) clearDelegationWakeBudget(threadId);
   const commsDepth = opts?.commsDepth ?? 0;
   // a task takes its name from the first thing the user asked it to do —
   // never from a peer's opening line
@@ -5951,7 +5950,7 @@ function enqueueDrainedRoomTurn(
 // comms bus: passed into the visibility helpers in comms-visibility.ts so
 // they can mirror messages + chips without re-deriving SSE plumbing. Same
 // shape every comms entry point uses (ask_bot, delegate_bot).
-const commsBus: CommsBus = { store, broadcast };
+const commsBus: CommsBus = { store, broadcast, deviceId: profileSyncSettings.deviceId, wakeSender: (botId, threadId) => paneWake.noteArrived(botId, threadId) };
 
 // approval bus: peer-approval.ts only needs to push cards and broadcast
 // them — its pending map lives in the module so the two respond endpoints

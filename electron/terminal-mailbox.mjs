@@ -27,7 +27,7 @@ export async function postPaneNote(mailbox, { pane, bot, teacher }, text, fetchI
   const response = await fetchImpl(`${mailbox.url}/api/mailbox`, {
     method: "POST",
     headers: { authorization: `Bearer ${mailboxGrant(mailbox.token, pane, bot, teacher)}`, "content-type": "application/json", "x-orbit-pane": pane, "x-orbit-bot": bot, "x-orbit-teacher": teacher },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, kind: text.startsWith("STALLED:") ? "stall" : undefined }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`Mailbox post failed: ${response.status}`);
@@ -241,6 +241,53 @@ fi
 exec "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" "$@"
 `;
 
+const ORBIT_CLEAN_PS1 = String.raw`$ErrorActionPreference = 'Stop'
+if ($args.Count -ne 1 -or [string]$args[0] -cnotmatch '^[A-Z0-9][A-Z0-9-]{0,63}$') {
+  [Console]::Error.WriteLine('usage: orbit-clean <NICKNAME> (uppercase letters, digits and hyphens)')
+  exit 1
+}
+try {
+  if (-not $env:TEMP) { throw 'TEMP is not set' }
+  $temp = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $env:TEMP).ProviderPath).TrimEnd([IO.Path]::DirectorySeparatorChar)
+  $target = [IO.Path]::GetFullPath([IO.Path]::Combine($temp, 'wink-' + $args[0]))
+  if (-not [string]::Equals([IO.Path]::GetDirectoryName($target), $temp, [StringComparison]::OrdinalIgnoreCase)) { throw 'scratch must be directly inside TEMP' }
+  if (-not (Test-Path -LiteralPath $target)) {
+    [Console]::Out.WriteLine('orbit-clean: nothing to clean: ' + $target)
+    exit 0
+  }
+  $root = Get-Item -LiteralPath $target -Force
+  if (-not $root.PSIsContainer -or ($root.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'scratch must be a directory, not a reparse point' }
+  $pending = New-Object 'System.Collections.Generic.Stack[string]'
+  $pending.Push($target)
+  [long]$size = 0
+  while ($pending.Count) {
+    $dir = $pending.Pop()
+    foreach ($item in (Get-ChildItem -LiteralPath $dir -Force)) {
+      if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName) }
+        else { [IO.File]::Delete($item.FullName) }
+      } elseif ($item.PSIsContainer) { $pending.Push($item.FullName) }
+      else { $size += $item.Length }
+    }
+  }
+  Remove-Item -LiteralPath $target -Recurse -Force
+  [Console]::Out.WriteLine('orbit-clean: removed ' + $target + ' (' + $size + ' bytes)')
+} catch {
+  [Console]::Error.WriteLine('orbit-clean: ' + $_.Exception.Message)
+  exit 1
+}
+`;
+
+const ORBIT_CLEAN_CMD = String.raw`@echo off
+setlocal DisableDelayedExpansion
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0orbit-clean.ps1" %*
+exit /b %errorlevel%
+`;
+
+const ORBIT_CLEAN_SH = String.raw`#!/bin/bash
+exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/orbit-clean.ps1" "$@"
+`;
+
 // Claude Code swaps hook stdout over 10,000 chars for a 2,000-char preview, so each part stays under 9,900.
 // "card" prints the first card; "progress" prints follow-up cards, then the card's progress file.
 const ORBIT_COMPACT_PS1 = String.raw`$ErrorActionPreference = 'Stop'
@@ -404,6 +451,7 @@ function claudeWorkerSettings(dir) {
   const status = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-status.ps1").replace(/\\/g, "/")}" ${CLAUDE_COMPACT_WINDOW}`;
   return `${JSON.stringify({
     autoCompactWindow: CLAUDE_COMPACT_WINDOW,
+    permissions: { allow: ["Bash(orbit-clean:*)", "PowerShell(orbit-clean *)"] },
     statusLine: { type: "command", command: status },
     hooks: {
       Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }],
@@ -420,6 +468,9 @@ export async function installOrbitMsg(dir, platform = process.platform) {
     ["orbit-msg.ps1", ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg.cmd", ORBIT_MSG_CMD.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg", ORBIT_MSG_SH],
+    ["orbit-clean.ps1", ORBIT_CLEAN_PS1.replace(/\r?\n/g, "\r\n")],
+    ["orbit-clean.cmd", ORBIT_CLEAN_CMD.replace(/\r?\n/g, "\r\n")],
+    ["orbit-clean", ORBIT_CLEAN_SH],
     ["orbit-compact.ps1", ORBIT_COMPACT_PS1.replace(/\r?\n/g, "\r\n")],
     ["orbit-status.ps1", ORBIT_STATUS_PS1.replace(/\r?\n/g, "\r\n")],
     ["claude-worker.json", claudeWorkerSettings(dir)],

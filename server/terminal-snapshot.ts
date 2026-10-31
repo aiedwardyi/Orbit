@@ -223,7 +223,7 @@ export async function raisePaneAttention(
   access: TerminalBridgeAccess | null,
   botId: string,
   sessionId: string,
-  kind?: "report" | "auto",
+  kind?: "report" | "auto" | "stall",
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   if (!access) return;

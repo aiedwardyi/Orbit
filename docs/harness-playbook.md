@@ -35,7 +35,7 @@ What to build or fix, and why. Two to five lines.
   rules differ: comments only for a footgun, one line; new logic in a
   focused file, not a large one.
 - If a choice this card does not cover would change the result, stop and report BLOCKED with the question.
-- Keep processes off the user's screen: run in the pane, start background work hidden.
+- Keep processes off the user's screen: run in the pane, start servers hidden, and wait for checks in the foreground: a hidden process sends no alert when it ends.
 
 ## Files
 - The files it should start from.
@@ -110,12 +110,12 @@ git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 
 ## Clean up
 
-You own what you created for this task: worktrees, scratch folders, test data
-folders, servers and panes. Record each path in the card's progress file when
-you create it.
+You own the worktrees, scratch folders, test data, servers and panes you create.
+Record paths in the card's progress file.
 
 - Scratch and test data go in one folder per card, `<system temp>\wink-<NICKNAME>`.
   Never reuse another card's folder.
+  Scratch is removed with `orbit-clean <NICKNAME>`.
 - Once the result is verified and landed, or the user drops it, remove what you
   created. Keep only evidence files the user still needs (sheet.png, findings),
   outside temp.
