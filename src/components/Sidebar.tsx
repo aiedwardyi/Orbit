@@ -35,7 +35,6 @@ import {
   moveSection,
   placeSection,
   sameSectionOrder,
-  userSectionId,
   userSectionName,
   type SectionDropPlace,
 } from "@/lib/sidebar-layout";
@@ -91,6 +90,7 @@ import {
   normalizeSidebarOrder,
   orderedSidebarItems,
   partitionSidebarItemKeys,
+  sectionIdFor,
   sidebarPriorityFor,
   sameSidebarOrder,
   sidebarItemKey,
@@ -386,10 +386,10 @@ function SectionPicker({
       ...state.bots.filter((b) => !b.hidden && b.section).map((b) => b.section!),
       ...listedGroups(state.groups).filter((g) => g.section).map((g) => g.section!),
     ]),
-  ];
+  ].filter((section) => sectionIdFor(section) !== UNASSIGNED_SECTION_ID);
 
   const assign = (section: string) => {
-    onAssign(section);
+    onAssign(userSectionName(sectionIdFor(section)) ?? "");
     onClose();
   };
 
@@ -1086,7 +1086,6 @@ export function Sidebar({
     bot?: Bot;
     group?: Group;
   };
-  const sectionIdFor = (section?: string) => section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID;
   const activeBots = state.bots.filter((bot) => !bot.hidden);
   const listed = listedGroups(state.groups);
   const items: SidebarItem[] = [
@@ -1164,9 +1163,11 @@ export function Sidebar({
   );
   const sectionsReorderable = density !== "icons" && q.length === 0 && sectionIds.length > 1;
   const rowsReorderable = q.length === 0;
+  const loneUnassigned = sectionIds.length === 1
+    && priorityItemsByTier.chief.length === 0 && priorityItemsByTier.pinned.length === 0;
   // Search must show every match. The icon rail has no headers but honors the same collapse.
   const sectionsCollapsible = q.length === 0;
-  const sectionCollapsed = (id: string) => !(id === UNASSIGNED_SECTION_ID && sectionIds.length === 1)
+  const sectionCollapsed = (id: string) => !(id === UNASSIGNED_SECTION_ID && loneUnassigned)
     && sectionsCollapsible && collapsedSections.has(id);
   // The rail shows every chat except those inside a collapsed section, and a
   // visible icon glows for itself: the expand button stands in only for those
@@ -1799,7 +1800,7 @@ export function Sidebar({
           {sectionIds.map((id) => {
             const name = sectionLabel(id);
             const sectionItems = orderedItemsBySection.get(id) ?? [];
-            const lone = id === UNASSIGNED_SECTION_ID && sectionIds.length === 1;
+            const lone = id === UNASSIGNED_SECTION_ID && loneUnassigned;
             const collapsed = sectionCollapsed(id);
             const hiddenItems = collapsed ? sectionItems.filter((item) => item.id !== state.selectedId) : [];
             const shownItems = collapsed ? sectionItems.filter((item) => item.id === state.selectedId) : sectionItems;

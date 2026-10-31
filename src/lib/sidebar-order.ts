@@ -20,6 +20,12 @@ export type SidebarPriorityPartition = {
 
 export const UNASSIGNED_SECTION_ID = "unassigned";
 
+export function sectionIdFor(section?: string): string {
+  const name = section?.trim() ?? "";
+  const reserved = ["", "others", "기타", "unassigned", "미분류"].includes(name.replace(/\s/g, "").toLowerCase());
+  return reserved ? UNASSIGNED_SECTION_ID : userSectionId(name);
+}
+
 export function sidebarPriorityFor(value: { chiefOfStaff?: boolean; pinned?: boolean }): SidebarPriority | null {
   if (value.chiefOfStaff) return "chief";
   if (value.pinned) return "pinned";
@@ -181,7 +187,6 @@ export function preferredStartupSelectionId(
   groups: readonly SidebarStartupGroup[],
   order: SidebarOrder,
 ): string {
-  const sectionIdFor = (section?: string) => (section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID);
   const items = [
     ...listedGroups(groups).map((group) => ({
       key: sidebarItemKey("group", group.id),
