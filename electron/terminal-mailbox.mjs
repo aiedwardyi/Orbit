@@ -27,7 +27,7 @@ export async function postPaneNote(mailbox, { pane, bot, teacher }, text, fetchI
   const response = await fetchImpl(`${mailbox.url}/api/mailbox`, {
     method: "POST",
     headers: { authorization: `Bearer ${mailboxGrant(mailbox.token, pane, bot, teacher)}`, "content-type": "application/json", "x-orbit-pane": pane, "x-orbit-bot": bot, "x-orbit-teacher": teacher },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, kind: text.startsWith("STALLED:") ? "stall" : undefined }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`Mailbox post failed: ${response.status}`);

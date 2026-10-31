@@ -384,10 +384,12 @@ describe("pane attention relay", () => {
     await raisePaneAttention(null, "bot-1", "pane-1", undefined, fetchImpl);
     await raisePaneAttention(ACCESS, "bot-1", "pane-1", undefined, fetchImpl);
     await raisePaneAttention(ACCESS, "bot-1", "pane-1", "report", fetchImpl);
+    await raisePaneAttention(ACCESS, "bot-1", "pane-1", "stall", fetchImpl);
     const auth = `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}`;
     expect(calls).toEqual([
       { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/attention", auth, body: { sessionId: "pane-1" } },
       { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/attention", auth, body: { sessionId: "pane-1", kind: "report" } },
+      { url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal/attention", auth, body: { sessionId: "pane-1", kind: "stall" } },
     ]);
     const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
     await expect(raisePaneAttention(ACCESS, "bot-1", "pane-1", undefined, down)).resolves.toBeUndefined();

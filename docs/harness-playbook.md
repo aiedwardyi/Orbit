@@ -35,7 +35,7 @@ What to build or fix, and why. Two to five lines.
   rules differ: comments only for a footgun, one line; new logic in a
   focused file, not a large one.
 - If a choice this card does not cover would change the result, stop and report BLOCKED with the question.
-- Keep processes off the user's screen: run in the pane, start background work hidden.
+- Keep processes off the user's screen: run in the pane, start servers hidden, and wait for checks in the foreground: a hidden process sends no alert when it ends.
 
 ## Files
 - The files it should start from.
