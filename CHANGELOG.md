@@ -2,6 +2,14 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.218] - 2026-10-31
+
+### Fixed
+- An idle worker gets nudged again at 30 and 60 minutes instead of only once.
+- A bot that gets asked a question in a delegated reply is woken to answer it.
+- Workers delete their own scratch folders when they finish.
+- "Worker finished" notes come only from commands a bot started.
+
 ## [1.0.217] - 2026-10-31
 
 ### Added
