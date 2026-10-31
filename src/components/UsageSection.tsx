@@ -78,8 +78,8 @@ function EnginePlanRow({
   // A reported reset that has passed ends the limit; an unknown one holds until the next check.
   const limited = limit && (limit.resetsAt === null || Boolean(limitReset));
   // Settings rows never show turn input/output counts - those live only in
-  // the chat strip.
-  const windows = [...(instance.rateLimits?.windows ?? [])].sort(
+  // the chat strip. At the limit, a passed window is noise beside the reset line.
+  const windows = [...(instance.rateLimits?.windows ?? [])].filter((window) => !limited || !windowExpired(window.resetsAt, now)).sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
   // Engines with rateLimits emit a window after a turn or refresh. Engines
@@ -127,12 +127,12 @@ function EnginePlanRow({
           })}
         </div>
       )}
-      {instance.rateLimits && stale && !muse && (
+      {instance.rateLimits && stale && !muse && !limited && (
         <div className="mt-1 text-[12px] text-ink-secondary">
           {t("usage.limits.cachedAsOf", { age: age(instance.rateLimits.observedAt) })}
         </div>
       )}
-      {muse && (
+      {muse && !limited && (
         <div className="mt-1 text-[12px] text-ink-secondary">
           {reading ? reading.label(t) : t("usage.limits.museNoReading")}
         </div>

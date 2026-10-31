@@ -523,7 +523,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).not.toBeNull();
       await tapRefresh();
-      expect(host.textContent).toMatch(/Muse limit reached\. Resets in 1h5[678]m\./);
+      expect(host.textContent).toMatch(/Limit reached\. Resets in 1h5[678]m\./);
       expect(host.textContent).toContain("Updated just now");
       for (const meter of museMeters()) {
         expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
@@ -531,7 +531,7 @@ describe("UsageSection friends plan card", () => {
       }
       resetsAt = null;
       await tapRefresh();
-      expect(host.textContent).toContain("Muse limit reached.");
+      expect(host.textContent).toContain("Limit reached.");
       expect(host.textContent).not.toContain("Resets in 1h");
       for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).toBeNull();
       persistPreference("ko");
@@ -539,13 +539,64 @@ describe("UsageSection friends plan card", () => {
       root = createRoot(host);
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await tapRefresh();
-      expect(host.textContent).toContain("Muse 한도에 도달했습니다.");
+      expect(host.textContent).toContain("한도에 도달했습니다.");
       resetsAt = Date.now() + 117 * 60_000;
       await tapRefresh();
-      expect(host.textContent).toMatch(/Muse 한도에 도달했습니다\. 1시간 5[678]분 후 초기화됩니다\./);
+      expect(host.textContent).toMatch(/한도에 도달했습니다\. 1시간 5[678]분 후 초기화됩니다\./);
     } finally {
       await act(async () => root.unmount());
       host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("shows the bars and one reset line while Muse is at its limit", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let root = createRoot(host);
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
+    const original = muse.rateLimits;
+    muse.rateLimits = {
+      observedAt: new Date(Date.now() - 16 * 3_600_000).toISOString(),
+      windows: [
+        { id: "five_hour", usedPercent: 40, resetsAt: Date.now() - 3 * 3_600_000 },
+        { id: "seven_day", usedPercent: 99, resetsAt: Date.now() + 44 * 3_600_000 },
+      ],
+    };
+    mockApi.mockReset();
+    mockApi.mockImplementation(async (path: string) => path === "/api/usage/check/muse"
+      ? { status: "limit_reached", resetsAt: Date.now() + 44 * 3_600_000 + 30_000 }
+      : { status: "fresh" });
+    const tapRefresh = () => act(async () => {
+      [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-keyshortcuts") === "Alt+R")?.click();
+    });
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      expect(host.textContent).toContain("Reset since this reading. Use Refresh to update.");
+      expect(host.textContent).toContain("Last seen 16h ago");
+      await tapRefresh();
+      expect(host.textContent).toContain("Limit reached. Resets in 1d20h.");
+      expect(host.textContent).not.toContain("Muse limit reached");
+      expect(host.textContent).not.toContain("Reset since this reading");
+      expect(host.textContent).not.toContain("Last seen");
+      expect(host.querySelector('[aria-label="7d: 1% remaining"]')).not.toBeNull();
+      persistPreference("ko");
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      await tapRefresh();
+      expect(host.textContent).toContain("한도에 도달했습니다. 1일 20시간 후 초기화됩니다.");
+      expect(host.textContent).not.toContain("Muse 한도");
+      expect(host.textContent).not.toContain("이 값 이후 초기화되었습니다");
+      expect(host.textContent).not.toContain("마지막 확인 16시간 전");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      muse.rateLimits = original;
       mockApi.mockReset();
       mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
       persistPreference("en");
