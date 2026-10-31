@@ -76,7 +76,6 @@ export function usePhoneHeaderNameFloor(
     const button = nameRef.current;
     const header = cluster?.parentElement;
     if (!cluster || !button || !header) return;
-    const nameSlot = button.closest("[data-chat-name]") ?? button;
     let alive = true;
     let text = naturalWidth(button);
     let rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
@@ -120,8 +119,7 @@ export function usePhoneHeaderNameFloor(
         return;
       }
       header.style.paddingRight = menuOnRight ? `${PHONE_HEADER_MENU_RESERVE_PX}px` : "";
-      const statusWidth = cluster.querySelector<HTMLElement>("[data-worker-status]")?.scrollWidth ?? 0;
-      const slots = phoneHeaderSlots(Math.max(text, statusWidth), Math.max(4 * rem, statusWidth));
+      const slots = phoneHeaderSlots(text, 4 * rem);
       const place = (nameMin: number) => {
         const cs = getComputedStyle(cluster);
         const pad = px(cs.paddingLeft) + px(cs.paddingRight);
@@ -129,7 +127,7 @@ export function usePhoneHeaderNameFloor(
         let fixed = 0;
         let others = 0;
         for (const child of cluster.children) {
-          if (!(child instanceof HTMLElement) || child === nameSlot || getComputedStyle(child).display === "none") continue;
+          if (!(child instanceof HTMLElement) || child === button || getComputedStyle(child).display === "none") continue;
           fixed += child.getBoundingClientRect().width;
           others += 1;
         }

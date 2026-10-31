@@ -10,13 +10,6 @@ const chatView = [readFileSync(join(components, "ChatView.tsx"), "utf8"), chatBu
 const groupView = readFileSync(join(components, "GroupView.tsx"), "utf8");
 const composer = readFileSync(join(components, "Composer.tsx"), "utf8");
 
-it("constrains the phone name to its wrapper so long names can ellipsize", () => {
-  const name = chatView.slice(chatView.indexOf("ref={phoneNameRef}"));
-  const tokens = name.match(/className="([^"]+)"/)?.[1].split(/\s+/) ?? [];
-  expect(tokens).toContain("max-w-full");
-  expect(tokens).toContain("truncate");
-});
-
 describe("chat TTS speaker chrome", () => {
   it("does not render a per-message speak button", () => {
     expect(chatView).not.toContain("SpeakButton");

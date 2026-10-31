@@ -1426,7 +1426,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
-        <div ref={phoneClusterRef} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 max-md:flex-[0_1000_auto]">
+        <div ref={phoneClusterRef} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:flex-[0_1000_auto]">
           <button
             data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}
@@ -1442,28 +1442,25 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <div data-chat-name className="min-w-0 flex-1">
-            <button
-              ref={phoneNameRef}
-              type="button"
-              onClick={() => dispatch({ type: "toggleSettings", open: true })}
-              className="min-w-0 max-w-full shrink truncate text-left text-[15px] font-semibold text-ink md:hidden"
-              title={t("chat.openProfile", { name: bot.name })}
-              aria-label={t("chat.openProfile", { name: bot.name })}
-            >
-              {bot.name}
-            </button>
-            <div className="min-w-0 max-md:hidden">
-              <RenameTitle
-                value={bot.name}
-                onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
-                onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-                showEditButton
-                className="truncate text-[15px] font-semibold text-ink"
-                inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
-              />
-            </div>
-            <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} paneLabels={lastLabels.get(bot.id)} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
+          <button
+            ref={phoneNameRef}
+            type="button"
+            onClick={() => dispatch({ type: "toggleSettings", open: true })}
+            className="min-w-0 shrink truncate text-left text-[15px] font-semibold text-ink md:hidden"
+            title={t("chat.openProfile", { name: bot.name })}
+            aria-label={t("chat.openProfile", { name: bot.name })}
+          >
+            {bot.name}
+          </button>
+          <div className="min-w-0 flex-1 overflow-hidden max-md:hidden">
+            <RenameTitle
+              value={bot.name}
+              onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
+              onActivate={() => dispatch({ type: "toggleSettings", open: true })}
+              showEditButton
+              className="truncate text-[15px] font-semibold text-ink"
+              inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
+            />
           </div>
           <DeviceTag />
           {bot.chiefOfStaff && (
@@ -1489,6 +1486,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
               <KeepGoingMark state={keepGoing} size={14} />
             </button>
           )}
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} paneLabels={lastLabels.get(bot.id)} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"
