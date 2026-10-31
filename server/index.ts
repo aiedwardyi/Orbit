@@ -7552,7 +7552,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const open = req.headers[OPEN_CHAT_HEADER];
       const page = (chat: { id: string; threadId: string; unread?: boolean; readAt?: number }) =>
-        limit === undefined || typeof open !== "string" || chat.id === open ? limit : offscreenLimit(store.messagesFor(chat.threadId), limit, chat);
+        limit === undefined || typeof open !== "string" || chat.id === open ? limit : offscreenLimit(store.messagesFor(chat.threadId), limit, chat, store.activeLeaf(chat.threadId));
       return json(res, 200, {
         bots: store.bots.map((bot) => ({ ...publicBotRecord(bot), ...messagePage(bot.threadId, page(bot)) })),
         groups: store.groups.map((g) => ({ ...publicGroupState(g), ...messagePage(g.threadId, page(g)) })),

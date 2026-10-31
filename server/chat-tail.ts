@@ -13,7 +13,14 @@ const isPreview = (message: Message) =>
   !(message.role === "bot" && message.summarized) && message.kind !== "activity" && message.kind !== "screen";
 
 /** Rows for a chat off screen: a short tail, reaching back to every row its sidebar row reads (glow, unread count, preview, worker status). */
-export function offscreenLimit(messages: readonly Message[], limit: number, chat: { unread?: boolean; readAt?: number }): number {
+export function offscreenLimit(
+  messages: readonly Message[],
+  limit: number,
+  chat: { unread?: boolean; readAt?: number },
+  activeLeafId?: string | null,
+): number {
+  // A switched-back branch can sit anywhere in insertion order, so keep the full page.
+  if (activeLeafId && activeLeafId !== messages.at(-1)?.id) return limit;
   const floor = Math.max(0, messages.length - limit);
   let rows = Math.min(limit, OFFSCREEN_TAIL);
   let prompt = false, ask = false, user = false, preview = false, read = !chat.unread;

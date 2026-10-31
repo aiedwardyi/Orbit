@@ -48,4 +48,15 @@ describe("offscreen chat tail", () => {
     const messages = thread(300, 280).map((message, i) => (i > 240 ? { ...message, role: "bot" as const, kind: "activity" as const } : message));
     expect(offscreenLimit(messages, 200, read)).toBe(60);
   });
+
+  it("reaches back to every note in range", () => {
+    const messages = thread(300, 290);
+    messages[150] = { ...reply(150), kind: "note" };
+    expect(offscreenLimit(messages, 200, read)).toBe(150);
+  });
+
+  it("keeps the full page when an older branch is active", () => {
+    expect(offscreenLimit(thread(300, 290), 200, read, "m250")).toBe(200);
+    expect(offscreenLimit(thread(300, 290), 200, read, "m299")).toBe(30);
+  });
 });
