@@ -77,6 +77,7 @@ import { useI18n } from "@/lib/i18n";
 import { pinnedQuestion } from "@/lib/open-question";
 import { usePresence } from "@/lib/use-presence";
 import { useBackLayer } from "@/lib/use-back-layer";
+import { useCatchingUp } from "@/lib/use-catching-up";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MessageMenu, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
@@ -483,6 +484,7 @@ export function Composer({
   const engineSupportsImages = imageSupport !== "unsupported";
   const [imageNotice, setImageNotice] = useState<ComposerThreadNotice | null>(null);
   const shownImageNotice = visibleComposerNotice(imageNotice, threadId);
+  const catchingUp = useCatchingUp(bot && !group ? threadId : null);
   const showImageSupportNotice = (support: ReturnType<typeof imageTargetsSupport>) => {
     const text = imageSupportNotice(support, {
       unsupported: t("composer.imageUnsupported"),
@@ -929,6 +931,11 @@ export function Composer({
             first, so a long list of them shrinks instead of pushing the send
             row (below, shrink-0) off the screen. */}
         <div className="min-h-0 shrink overflow-y-auto">
+        {catchingUp && (
+          <p data-catching-up role="status" className="mb-1.5 px-1 text-[12px] text-ink-secondary">
+            {t("composer.catchingUp")}
+          </p>
+        )}
         {failedSends.map((failed) => (
           <div
             key={failed.id}
