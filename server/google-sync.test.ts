@@ -94,7 +94,7 @@ function importPeers(pc: PC): void {
   }
 }
 
-function boot(pc: Booting): GoogleSync {
+function boot(pc: Booting, extra: Partial<Parameters<typeof createGoogleSync>[0]> = {}): GoogleSync {
   return createGoogleSync({
     dataDir: pc.dataDir,
     account: pc.account,
@@ -117,6 +117,7 @@ function boot(pc: Booting): GoogleSync {
     },
     log: (line) => void pc.logs.push(line),
     now: () => Date.now() + pc.skew,
+    ...extra,
   });
 }
 
@@ -341,6 +342,60 @@ describe("Google sync journeys", { timeout: 60_000 }, () => {
     await laptop.sync.idle();
     expect(offline()).toMatchObject({ [home.deviceId]: false, [work.deviceId]: true });
     expect(laptop.sync.status().state).toBe("up-to-date");
+  });
+
+  it("says only the chat still pulling what a day away missed is catching up", async () => {
+    const home = makePC("home", { bots: [bot("Counsel", { chats: ["thread-open", "thread-other"] })] });
+    const laptop = makePC("laptop");
+    await startOn(home);
+    await startOn(laptop);
+    laptop.sync.stop();
+    const head = `threads-v2/${home.bots[0].syncId}/thread-open/${home.writerId}/head.json`;
+    write(home.folder!, head, JSON.stringify({ thread: "thread-open", cut: 2 }));
+    await settle(home);
+
+    let reached!: () => void;
+    const reaching = new Promise<void>((done) => { reached = done; });
+    let release!: () => void;
+    const held = new Promise<void>((done) => { release = done; });
+    driveA().onDownload = (file) => {
+      if (decodeDrivePath(file.name) !== head) return;
+      reached();
+      return held;
+    };
+    const pulls: Array<() => void> = [];
+    laptop.sync = boot(laptop, { pull: () => new Promise<void>((done) => void pulls.push(done)) });
+    expect(laptop.sync.catchingUp("thread-open")).toBeNull();
+    laptop.sync.resume();
+    await reaching;
+    expect(laptop.sync.catchingUp("thread-open")).toBe(true);
+    expect(laptop.sync.catchingUp("thread-other")).toBe(false);
+    release();
+    await vi.waitFor(() => expect(pulls).toHaveLength(1));
+    expect(laptop.sync.catchingUp("thread-open")).toBe(true);
+    pulls[0]();
+    await laptop.sync.idle();
+    await vi.waitFor(() => expect(laptop.sync.catchingUp("thread-open")).toBe(false));
+
+    laptop.sync.resume();
+    await laptop.sync.idle();
+    expect(laptop.sync.catchingUp("thread-open")).toBe(false);
+    expect(laptop.sync.status().state).toBe("up-to-date");
+  });
+
+  it("never says a chat is catching up when signed out or in folder mode", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    await startOn(home);
+    home.account.setSession(null);
+    home.sync.resume();
+    expect(home.sync.catchingUp("thread-Counsel")).toBe(false);
+
+    const folder = makePC("folder");
+    folder.folder = join(root, "drive-folder");
+    mkdirSync(folder.folder);
+    folder.account.setSession(A);
+    folder.sync.resume();
+    expect(folder.sync.catchingUp("thread-Counsel")).toBe(false);
   });
 
   it("publishes an unused bot on the first PC of an account", async () => {

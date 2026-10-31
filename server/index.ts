@@ -2250,7 +2250,7 @@ const googleSync = createGoogleSync({
     return profileSyncSettings.workspaceId;
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
-  pull: (threadId) => void pullSyncedThread(threadId),
+  pull: pullSyncedThread,
   openThread: () => threadRoutes.openThread(),
 });
 const uploadCloudRoots = cloudSyncRoots();
@@ -7579,6 +7579,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     m = path.match(/^\/api\/threads\/([\w-]+)\/turns$/);
     if (m && method === "GET") {
       return await threadRoutes.turns(res, m);
+    }
+
+    // the composer's catching-up line while this PC pulls what it missed
+    m = path.match(/^\/api\/catching-up\/([\w-]+)$/);
+    if (m && method === "GET") {
+      return json(res, 200, { catchingUp: googleSync.catchingUp(m[1]) });
     }
 
     // the pixels of one screen message, fetched only when something shows it

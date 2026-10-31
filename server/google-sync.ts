@@ -81,7 +81,7 @@ type Options = {
   /** The engines are still writing what activate republished. */
   republishing?: () => boolean;
   /** Pulls a chat whose peer head a pass just downloaded. */
-  pull?: (threadId: string) => void;
+  pull?: (threadId: string) => void | Promise<void>;
   openThread?: () => string | null;
   ownIds?: () => DriveOwnIds;
   fetch?: typeof fetch;
@@ -163,6 +163,7 @@ export function createGoogleSync(options: Options) {
   let chatFirst = true;
   // Peer files the open-or-wake catch-up still lacks; null until its first listing.
   let behind: ReadonlySet<string> | null = null;
+  const pulling = new Map<string, number>();
 
   const mirrorPath = () => {
     const path = join(dataDir, GOOGLE_MIRROR_DIR);
@@ -382,7 +383,16 @@ export function createGoogleSync(options: Options) {
         },
         downloaded: (path) => {
           if (bound.phase !== "ready") return;
-          for (const threadId of peerHead(path, ids)) options.pull?.(threadId);
+          for (const threadId of peerHead(path, ids)) {
+            const pulled = options.pull?.(threadId);
+            if (!pulled || !chatFirst) continue;
+            pulling.set(threadId, (pulling.get(threadId) ?? 0) + 1);
+            void pulled.finally(() => {
+              const left = (pulling.get(threadId) ?? 1) - 1;
+              if (left) pulling.set(threadId, left);
+              else pulling.delete(threadId);
+            });
+          }
         },
       }).syncOnce();
       if (!listed) syncHold.google(bound.mirrorPath);
@@ -488,6 +498,12 @@ export function createGoogleSync(options: Options) {
     kick,
     /** Settles once no pass is running or due right away. */
     idle: async () => { while (running || soon) await (running ?? new Promise((done) => setTimeout(done, 1))); },
+    /** Null while the catch-up has not listed Drive yet. */
+    catchingUp(threadId: string): boolean | null {
+      if (pulling.has(threadId) && runnable()) return true;
+      if (!catchUp()) return false;
+      return behind && [...behind].some((path) => path.startsWith("threads-v2") && path.split("/")[2] === threadId);
+    },
     /** False while this PC's copy of that PC's presence record may be stale. */
     deviceKnown: (deviceId: string) => !catchUp() || (behind !== null && !behind.has(`devices/${deviceId}.json`)),
     held: (botId: string) => binding.kind === "ok" && binding.binding.heldBots.includes(botId),
