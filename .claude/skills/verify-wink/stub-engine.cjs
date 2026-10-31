@@ -24,7 +24,10 @@ function reply(model, content) {
   // The last line only: after a Stop, Wink's task record quotes the stopped message above the next prompt.
   const delay = last.includes("[hold]") ? 15_000 : DELAY;
   note("prompt", { model, last, images, delay });
-  return { delay, text: [`STUB ${engine.toUpperCase()} ${model}`, last && `re: ${last.slice(0, 60)}`, images && `${images} image`].filter(Boolean).join(" | ") };
+  const head = [`STUB ${engine.toUpperCase()} ${model}`, last && `re: ${last.slice(0, 60)}`, images && `${images} image`].filter(Boolean).join(" | ");
+  const code = Array.from({ length: 40 }, (_, i) => `const step${i} = await run("step ${i}", { retries: ${i % 3}, timeoutMs: ${(i + 1) * 250} });`).join("\n");
+  const extra = last.includes("[code]") ? `\n\n\`\`\`js\n${code}\n\`\`\`` : last.includes("[two]") ? "\n\nsecond line of a two-line reply" : "";
+  return { delay, text: head + extra };
 }
 
 function lines(onMessage) {

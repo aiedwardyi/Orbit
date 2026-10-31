@@ -39,6 +39,7 @@ Run `doctor` after launch and before trusting a proof. It is read-only and check
 ```bash
 C="node .claude/skills/verify-wink/control-wink.mjs"
 $C seed                                             # Atlas claude, Juno codex, Orion grok, Vega antigravity, Lyra muse; 320 messages on Atlas
+$C seed --from-profile                              # instead: a sidebar shaped like ~/.orbit (or a given profile dir), on a fresh launch
 $C open desktop && $C open phone                    # one page per name; --engine webkit for Safari
 $C click 'aside[aria-label="Bots and navigation"] >> role=button[name=/^Juno/]' --page desktop
 $C type 'textarea[data-orbit-composer]' "hello" --page desktop && $C press Enter --page desktop
@@ -46,6 +47,8 @@ $C wait-settle --page desktop
 $C expect reply text '[data-orbit-message="bot"] >> nth=-1' "STUB CODEX" --page desktop
 ```
 
+- `seed --from-profile [<dir>]` copies the shape only: bot names, avatars, engine and model (on the stubs), pinned, Chief of Staff, section, hidden, order, and rooms with their members. It opens `bots.json`, `groups.json` and the avatar images they name, read-only; conversations, memory, keys, auth, device, sync and phone files are never read. Bot-to-bot channels are skipped.
+- Each bot then gets 3 stub turns: an image, a reaction on each side, a long code block (`[code]` in a prompt) and a 2-line reply (`[two]`). Each room gets 2.
 - `--page <name>` picks the page (default: the last one used). Driving two pages at once is how live sync is proven.
 - `click` taps on phone pages. On a phone, Enter in the composer adds a line; send with `role=button[name="Send message"]`.
 - `scroll` wheels on desktop and swipes on phone Chromium. It prints the row on top before its last step, so `expect in-view` can prove a load kept your place.
