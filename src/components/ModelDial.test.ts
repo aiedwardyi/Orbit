@@ -94,6 +94,8 @@ function spoken(node: Node): string {
 
 beforeEach(() => {
   Element.prototype.animate = animate;
+  vi.stubGlobal("localStorage", window.localStorage);
+  localStorage.clear();
 });
 
 afterEach(async () => {
@@ -102,6 +104,7 @@ afterEach(async () => {
   dispatch.mockReset();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   Element.prototype.animate = originalAnimate;
 });
 
@@ -222,6 +225,33 @@ describe("ModelDial", () => {
     expect(toggle().textContent).toBe("Dial View");
     await act(async () => toggle().click());
     expect(document.querySelector(".model-dial")).not.toBeNull();
+  });
+
+  it("remembers the view on reopen and a fresh mount", async () => {
+    media();
+    await mount();
+    const toggle = () => document.querySelector<HTMLButtonElement>(".model-dial-view")!;
+    const reopen = async () => {
+      await key("Escape");
+      await wait(400);
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click());
+    };
+    await act(async () => toggle().click());
+    expect(localStorage.getItem("omb-model-picker-view")).toBe("list");
+    await reopen();
+    expect(document.querySelector(".model-dial")).toBeNull();
+    expect(toggle().textContent).toBe("Dial View");
+    await act(async () => root.unmount());
+    await mount();
+    expect(document.querySelector(".model-cross-stage")).not.toBeNull();
+    expect(toggle().textContent).toBe("Dial View");
+    await act(async () => toggle().click());
+    await reopen();
+    expect(document.querySelector(".model-dial")).not.toBeNull();
+    await act(async () => root.unmount());
+    await mount();
+    expect(document.querySelector(".model-dial")).not.toBeNull();
+    expect(localStorage.getItem("omb-model-picker-view")).toBe("dial");
   });
 
   it("keeps the list picker below the desktop cutoff", async () => {
