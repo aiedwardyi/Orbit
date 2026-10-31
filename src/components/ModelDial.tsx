@@ -53,6 +53,45 @@ function useMatch(media: string, enabled: boolean): boolean {
 
 export const useModelDialFits = (enabled: boolean) => useMatch(`${DIAL_QUERY}, ${PHONE_DIAL_QUERY}`, enabled);
 
+const fontWarm = new WeakMap<FontFaceSet, { claims: Set<symbol>; cancel?: () => void; done?: boolean }>();
+
+// The first open otherwise fetches the mono font mid-layout; desktop loads it once per page at idle instead.
+export function useDialFontWarm(enabled: boolean, open: boolean) {
+  const desktop = useMatch(DIAL_QUERY, enabled);
+  useEffect(() => {
+    const fonts = globalThis.document?.fonts;
+    if (!desktop || !fonts?.load) return;
+    const warm = fontWarm.get(fonts) ?? { claims: new Set<symbol>() };
+    fontWarm.set(fonts, warm);
+    if (open) warm.done = true;
+    if (warm.done) return warm.cancel?.();
+    const claim = Symbol();
+    warm.claims.add(claim);
+    if (!warm.cancel) {
+      let idle = 0;
+      const run = () => {
+        warm.cancel = undefined;
+        if (warm.done || !window.matchMedia(DIAL_QUERY).matches || document.querySelector("[data-model-picker-content]")) return;
+        warm.done = true;
+        for (const weight of [400, 500, 600]) fonts.load(`${weight} 11px "JetBrains Mono"`).catch(() => undefined);
+      };
+      const timer = window.setTimeout(() => {
+        if (window.requestIdleCallback) idle = window.requestIdleCallback(run, { timeout: 3000 });
+        else run();
+      }, 2000);
+      warm.cancel = () => {
+        clearTimeout(timer);
+        if (idle) window.cancelIdleCallback(idle);
+        warm.cancel = undefined;
+      };
+    }
+    return () => {
+      warm.claims.delete(claim);
+      if (!warm.claims.size) warm.cancel?.();
+    };
+  }, [desktop, open]);
+}
+
 export type ModelDialHandle = { key: (event: ReactKeyboardEvent) => boolean };
 
 type ModelDialProps = {
@@ -172,8 +211,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
     intro.current = [];
   };
 
-  const ease = (x: number) => {
-    const spring = getComputedStyle(stage.current!).getPropertyValue("--spring").match(/\d*\.\d+|\d+/g)?.map(Number) ?? [0, 1];
+  const ease = (x: number, spring: number[]) => {
     if (x >= 1) return 1;
     const at = Math.max(x, 0) * (spring.length - 1);
     const k = Math.floor(at);
@@ -184,13 +222,16 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
   const sweep = (deg: number) => {
     const state = ring.current;
     const now = performance.now();
-    const from = state.from + (state.to - state.from) * ease(state.ms ? (now - state.start) / state.ms : 1);
-    Object.assign(state, { from, to: deg, start: now, ms: reducedMotion() || boot ? 0 : ms });
+    const duration = reducedMotion() || boot ? 0 : ms;
+    // A forced style read; a zero-duration sweep only needs its end pose.
+    const spring = duration ? getComputedStyle(stage.current!).getPropertyValue("--spring").match(/\d*\.\d+|\d+/g)?.map(Number) ?? [0, 1] : [0, 1];
+    const from = state.from + (state.to - state.from) * ease(state.ms ? (now - state.start) / state.ms : 1, spring);
+    Object.assign(state, { from, to: deg, start: now, ms: duration });
     const parts = [(a: number) => Math.min(Math.max(a, 0), 180), (a: number) => Math.min(Math.max(a - 180, 0), 180), (a: number) => a];
     state.anims.forEach((anim) => anim.cancel());
     state.anims = arcs.current.flatMap((el, j) => el?.animate?.(
-      Array.from({ length: 25 }, (_, s) => ({ transform: `rotate(${parts[j]!(from + (deg - from) * ease(s / 24))}deg)` })),
-      { duration: state.ms, fill: "forwards" },
+      duration ? Array.from({ length: 25 }, (_, s) => ({ transform: `rotate(${parts[j]!(from + (deg - from) * ease(s / 24, spring))}deg)` })) : [{ transform: `rotate(${parts[j]!(deg)}deg)` }],
+      { duration, fill: "forwards" },
     ) ?? []);
   };
 
