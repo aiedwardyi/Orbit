@@ -330,6 +330,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     window.ogb?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
 
+  // Desktop boot parks API calls on every free connection until the server is up, so a gear click could not fetch this.
+  useEffect(() => {
+    if (window.ogb) void import("@/components/SettingsModal").catch(() => {});
+  }, []);
+
   useEffect(() => {
     const offAttention = window.ogb?.terminal?.onAttention?.(({ id: sessionId, botId, reason }) => {
       const current = latestState.current;
