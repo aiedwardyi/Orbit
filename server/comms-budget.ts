@@ -24,6 +24,12 @@ export function clearDelegationWakeBudget(sourceThreadId: string): void {
   delegationWakes.delete(sourceThreadId);
 }
 
+export function releaseDelegationWake(sourceThreadId: string): void {
+  const used = delegationWakes.get(sourceThreadId) ?? 0;
+  if (used <= 1) delegationWakes.delete(sourceThreadId);
+  else delegationWakes.set(sourceThreadId, used - 1);
+}
+
 /** Take one of this turn's asks. False once the turn has spent them all. */
 export function claimAsk(sourceThreadId: string): boolean {
   const used = asksThisTurn.get(sourceThreadId) ?? 0;

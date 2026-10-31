@@ -17,7 +17,7 @@ import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { peerMessagePrompt } from "./chief-of-staff.ts";
-import { claimDelegationWake } from "./comms-budget.ts";
+import { claimDelegationWake, releaseDelegationWake } from "./comms-budget.ts";
 import {
   commLink,
   getOrCreateChannel,
@@ -851,10 +851,13 @@ export function finishDelegatedTurn(
   }
   const sender = turn.sourceBotId ? bus.store.bot(turn.sourceBotId) : undefined;
   if (ok && !pointer && sender && turn.sourceThreadId) {
-    const wake = Boolean(running && !turn.ask && bus.wakeSender
+    const shouldWake = Boolean(running && !turn.ask && bus.wakeSender
       && bus.store.taskByThread(sender.id, turn.sourceThreadId) && !bus.store.groupByThread(turn.sourceThreadId)
-      && channel && asksSender(reply, sender.name) && claimDelegationWake(turn.sourceThreadId));
-    if (postPeerReply(bus, sender, target, reply, channel, turn.sourceThreadId, wake) && wake) {
+      && channel && asksSender(reply, sender.name));
+    const wake = shouldWake && claimDelegationWake(turn.sourceThreadId);
+    const posted = postPeerReply(bus, sender, target, reply, channel, turn.sourceThreadId, wake);
+    if (wake && !posted) releaseDelegationWake(turn.sourceThreadId);
+    if (posted && wake) {
       bus.wakeSender!(sender.id, turn.sourceThreadId);
     }
   }

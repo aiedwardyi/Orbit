@@ -236,7 +236,7 @@ import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxRecipient, mailboxScope, mailboxSecretFor, readMailboxBody } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
-import { hasLocalUndeliveredPaneNote, isWakeNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { hasLocalUndeliveredPaneNote, isWakeNote, paneWakeEnabled, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
 import { LimitWaits } from "./limit-wait.ts";
 import {
@@ -4047,11 +4047,9 @@ function paneNotesPending(threadId: string): boolean {
 }
 
 // A pane note wakes its teacher with a control-plane turn: cardContinuation
-// keeps it from reading as the user's words. Not unattended: the wake only
-// fires for a bot whose owner turned on share-terminal, and its auto mode is
-// the whole point of acting on worker reports; destructive/sensitive still card.
+// keeps it from reading as the user's words; destructive/sensitive still card.
 const paneWake = new PaneWakeScheduler({
-  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
+  enabled: (botId, threadId) => paneWakeEnabled(store, botId, threadId),
   paused: (botId) => store.bot(botId)?.paneWakePaused === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId) || limitWaits.held(botId),
   hasNotes: paneNotesPending,

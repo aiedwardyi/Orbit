@@ -1,13 +1,16 @@
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getOrCreateChannel, type CommsBus } from "./comms-visibility.ts";
+import * as commsVisibility from "./comms-visibility.ts";
 import { claimAsk, clearAskBudget, clearDelegationWakeBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { DATA_DIR } from "./config.ts";
 import { paneNotesForTurn, paneNotesSinceLastUserTurn, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
 import { _resetPending, drainDelegations, finishDelegatedTurn, queueDelegation, type DelegatedTurn } from "./delegations.ts";
 import { asksSender } from "./delegate-askback.ts";
 import { hasLocalUndeliveredPaneNote, isWakeNote, PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import * as paneWake from "./pane-wake.ts";
 import { Store, type BotRecord } from "./store.ts";
 import { buildTurnContext } from "./turn-context.ts";
 
@@ -61,9 +64,13 @@ describe("delegated ask-back", () => {
     peer = store.patchBot(store.createBot().id, { name: "Helper" })!;
     clearDelegationWakeBudget(sender.threadId);
     const notes = (threadId: string) => paneNotesForTurn(store.activePath(threadId), new Set(), store.taskByThread(sender.id, threadId)?.paneNotesDeliveredId ?? undefined, false);
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const enabled = source.match(/const paneWake = new PaneWakeScheduler\(\{\s+enabled: (.+),/)![1];
+    const javascript = ts.transpileModule(`const enabled = ${enabled};`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
     scheduler = new PaneWakeScheduler({
-      enabled: (id) => Boolean(store.bot(id)),
+      enabled: new Function("store", ...Object.keys(paneWake), `${javascript}\nreturn enabled;`)(store, ...Object.values(paneWake)),
       busy: () => busy,
+      paused: (id) => store.bot(id)?.paneWakePaused === true,
       hasNotes: (threadId) => notes(threadId).notes.length > 0,
       wake: (botId, threadId) => {
         const pending = notes(threadId);
@@ -86,6 +93,7 @@ describe("delegated ask-back", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     scheduler.forgetBot(sender.id);
     vi.useRealTimers();
     _resetPending();
@@ -121,7 +129,59 @@ describe("delegated ask-back", () => {
     expect(wake).toHaveBeenCalledTimes(1);
   });
 
-  it("delivers to the original task after the sender switches tasks", async () => {
+  it("wakes once with terminal sharing disabled after the sender settles", async () => {
+    store.patchBot(sender.id, { shareTerminalWithChat: false });
+    busy = true;
+    finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+    busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith(sender.id, expect.stringContaining("@Sender, which branch?"));
+    scheduler.noteArrived(sender.id, sender.threadId);
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(store.messagesFor(sender.threadId).filter((message) => message.comm?.peer === "reply")).toHaveLength(1);
+  });
+
+  it("keeps ask-back wakes paused with terminal sharing disabled", async () => {
+    store.patchBot(sender.id, { shareTerminalWithChat: false, paneWakePaused: true });
+    finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("keeps terminal notes disabled when terminal sharing is off", async () => {
+    store.patchBot(sender.id, { shareTerminalWithChat: false });
+    store.appendMessage(sender.threadId, { role: "bot", kind: "note", text: "Worker finished", origin: "local-device" });
+    scheduler.noteArrived(sender.id, sender.threadId);
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("preserves the wake budget when posting the reply fails", async () => {
+    const post = vi.spyOn(commsVisibility, "postPeerReply");
+    for (let index = 0; index < MAX_ASKS_PER_TURN; index++) {
+      post.mockReturnValueOnce(false);
+      finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+      expect(wake).not.toHaveBeenCalled();
+      queueDelegation(bus, sender, { toBotId: peer.id, message: "Try again", depth: 0 }, 1);
+      drainDelegations(bus, bus, sender.threadId, (toBotId, _text, _depth, sourceThreadId, channel, taskId, sourceBotId) => {
+        turn = { toBotId, sourceThreadId, channelId: channel?.id, taskId, sourceBotId };
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    finishDelegatedTurn(bus, turn, true, "@Sender, another question?");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith(sender.id, expect.stringContaining("@Sender, another question?"));
+  });
+
+  it.each([true, false])("delivers to the original task after the sender switches tasks (terminal sharing: %s)", async (shareTerminalWithChat) => {
+    store.patchBot(sender.id, { shareTerminalWithChat });
     const sourceThreadId = sender.threadId;
     store.createTask(sender.id, "Other task");
     finishDelegatedTurn(bus, turn, true, "@Sender, which branch?");

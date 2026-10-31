@@ -9,7 +9,7 @@ export function asksSender(reply: string, senderName: string): boolean {
   const prose: string[] = [];
   const walk = (node: typeof tree | (typeof tree)["children"][number]) => {
     if (node.type === "code" || node.type === "inlineCode" || node.type === "definition") return;
-    if (node.type === "text" || node.type === "html") prose.push(withoutUrls.slice(node.position!.start.offset, node.position!.end.offset));
+    if (node.type === "text" || node.type === "html") { const p = node.position; if (p) prose.push(withoutUrls.slice(p.start.offset, p.end.offset)); }
     if ("children" in node) for (const child of node.children) walk(child);
   };
   walk(tree);
