@@ -275,6 +275,50 @@ describe("usage refresh route result", () => {
     expect(calls).toBe(2);
   });
 
+  it("reads Claude's weekly window alone when the body has no five_hour key or a null one", async () => {
+    for (const body of [{ seven_day: { utilization: 19, resets_at: reset } }, { five_hour: null, seven_day: { utilization: 19, resets_at: reset } }]) {
+      const refresh = createUsageRefresh({ platform: "linux", read: async () => credentials, request: async () => Response.json(body) });
+      const result = await refresh("claudeAgent", { instanceId: "claude" });
+      expect(result.error).toBeUndefined();
+      expect(result.report?.windows).toEqual([{ id: "seven_day", usedPercent: 19, resetsAt: Date.parse(reset), windowMinutes: 10080 }]);
+    }
+  });
+
+  it("keeps Claude's last values quietly on a 429 and backs off from 5 to 30 minutes", async () => {
+    let now = 1_000;
+    let calls = 0;
+    let retryAfter = "0";
+    const refresh = createUsageRefresh({ platform: "linux", now: () => now, read: async () => credentials, request: async () => {
+      calls++;
+      return Response.json({ error: "Rate limited. Please try again later." }, { status: 429, headers: { "retry-after": retryAfter } });
+    } });
+    const previous = { windows: [{ id: "seven_day", usedPercent: 19, resetsAt: null }], observedAt: new Date(0).toISOString() };
+    const minute = 60_000;
+    for (const [index, wait] of [5, 10, 20, 30, 30].entries()) {
+      const result = await refresh("claudeAgent", { instanceId: "claude" }, previous);
+      expect(result.error).toBeUndefined();
+      expect(result.report).toEqual(previous);
+      expect(result.retryAt).toBe(now + wait * minute);
+      now += wait * minute - 1;
+      await refresh("claudeAgent", { instanceId: "claude" }, previous);
+      expect(calls).toBe(index + 1);
+      now++;
+    }
+    retryAfter = "90";
+    expect((await refresh("claudeAgent", { instanceId: "claude" }, previous)).retryAt).toBe(now + 90_000);
+  });
+
+  it("reads one Claude credential once for every instance on it", async () => {
+    let calls = 0;
+    const refresh = createUsageRefresh({ platform: "linux", now: () => 1_000, read: async () => credentials, request: async () => {
+      calls++;
+      return Response.json(fixtures.claudeAgent);
+    } });
+    const results = await Promise.all(["claude", "claude-opus", "claude-sonnet"].map((instanceId) => refresh("claudeAgent", { instanceId })));
+    expect(await refresh("claudeAgent", { instanceId: "claude-haiku" })).toEqual(results[0]);
+    expect(calls).toBe(1);
+  });
+
   it("normalizes antigravityAgent from the local quota server without touching credentials", async () => {
     let reads = 0;
     let http = 0;
