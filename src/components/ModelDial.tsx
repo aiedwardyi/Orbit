@@ -13,8 +13,10 @@ import { ProviderMark } from "./ProviderIcons";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import "./ModelDial.css";
 
-const DIAL_QUERY = "(min-width: 640px) and (pointer: fine)";
+const DIAL_QUERY = "(pointer: fine)";
 const PHONE_DIAL_QUERY = `${PHONE_QUERY} and (pointer: coarse)`;
+// Mouse windows too narrow for the 1440x900 stage at .75 zoom take the phone layout; short wide ones keep the stage.
+const NARROW_DIAL_QUERY = "(max-width: 639.98px) and (pointer: fine), (max-width: 1079.98px) and (max-aspect-ratio: 8/5) and (pointer: fine)";
 const FADE = [1, 0.55, 0.22];
 const PHONE_FADE = [1, 0.38];
 // Card spacing in the phone layout; ModelDial.css uses the same 62px.
@@ -90,7 +92,7 @@ function Odometer({ value, int, dec }: { value: number | undefined; int: number;
 
 export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, stageRef, bindingsId }: ModelDialProps) {
   const { t } = useI18n();
-  const phone = useMatch(PHONE_DIAL_QUERY, true);
+  const phone = useMatch(`${PHONE_DIAL_QUERY}, ${NARROW_DIAL_QUERY}`, true);
   const models = pickerModels(rows);
   const count = models.length;
   const labOf = models.map((item) => rows.findIndex((row) => row.instance === item.instance));

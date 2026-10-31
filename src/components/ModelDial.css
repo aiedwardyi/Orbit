@@ -294,6 +294,7 @@
 /* Phone: dial on top facing down, cards as a drum below it. */
 .dial-stage[data-phone] { --face: 90deg; --cx: 195px; --cy: 216px; --cw: 300px; --ch: 56px; width: 390px; height: 844px; touch-action: none; }
 .dial-stage[data-phone] :is(.dial-top p, .dial-orbits, .dial-link, .dial-rail, .dial-keys, .dial-src, .dial-cta kbd) { display: none; }
+@media (pointer: fine) { .dial-stage[data-phone] .dial-cta kbd { display: inline-grid; } }
 .dial-stage[data-phone] .dial-top { left: 16px; top: 16px; width: 358px; }
 .dial-stage[data-phone] .dial-top h2 { font-size: 22px; }
 .dial-stage[data-phone] .dial-pill { margin-top: 8px; padding: 4px 8px; font-size: 9.5px; }
